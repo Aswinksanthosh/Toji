@@ -131,6 +131,10 @@ try {
       if ($run[$i.Name] -gt [int]$seen[$i.Name] -and $i.Name -ne $question) { $fresh.Add($i.Name) }
     }
     $text = (($fresh -join '') -replace '\s+', ' ').Trim()
+    # The app adds hidden labels for screen readers: "You said <question>" and
+    # "Gemini said". Keep only what follows the last "Gemini said".
+    $marker = $text.LastIndexOf('Gemini said')
+    if ($marker -ge 0) { $text = $text.Substring($marker + 'Gemini said'.Length).Trim() }
     if ($text -and $text -eq $last) { $stable++ } else { $stable = 0 }
     $last = $text
     if ($text -and $stable -ge 4) { $answer = $text; break }
