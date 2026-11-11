@@ -88,7 +88,7 @@ export function createPhoneAuth({ password, now = Date.now }) {
   }
 }
 
-function page(nonce) {
+function page(nonce, writes = false) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -104,6 +104,7 @@ main{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:10
 .me{align-self:flex-end;background:#0b3446}
 .bot{align-self:flex-start;background:#07161f;border:1px solid #0c2a38}
 .err{color:#ffb4a8}
+.warn{display:block;margin-top:4px;letter-spacing:.12em;font-size:.68rem;color:#ffd27a}
 form{display:flex;gap:8px;padding:12px;border-top:1px solid #0c2a38;background:#020a12}
 input,textarea{flex:1;min-width:0;padding:12px;border-radius:10px;border:1px solid #1d5a70;background:#041420;color:inherit;font:inherit}
 button{padding:0 18px;border-radius:10px;border:1px solid #1d5a70;background:#0b3446;color:#bfefff;font:inherit}
@@ -113,7 +114,7 @@ button:disabled{opacity:.5}
 #chat{display:contents}
 [hidden]{display:none!important}
 </style></head><body>
-<header>J.A.R.V.I.S.</header>
+<header>J.A.R.V.I.S.${writes ? '<span class="warn">CONTROLS THE LAPTOP: it can open apps, type, click and change files</span>' : ''}</header>
 <form id="login" autocomplete="off"><label for="pw">Password</label>
 <input id="pw" type="password" autocomplete="current-password" required>
 <button>Unlock</button><div id="lerr" class="err"></div></form>
@@ -189,6 +190,7 @@ export async function startPhoneServer({
   host = '0.0.0.0',
   ask,
   allowPublic = false,
+  writes = false,
   now = Date.now,
 }) {
   const auth = createPhoneAuth({ password, now })
@@ -214,7 +216,7 @@ export async function startPhoneServer({
 
       if (req.method === 'GET' && path === '/') {
         const nonce = randomBytes(16).toString('base64')
-        return send(res, 200, page(nonce), {
+        return send(res, 200, page(nonce, writes), {
           'content-type': 'text/html; charset=utf-8',
           'content-security-policy': `default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
           'x-frame-options': 'DENY',

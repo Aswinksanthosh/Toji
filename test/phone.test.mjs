@@ -113,3 +113,14 @@ test('unknown paths and cross-origin preflights get nothing useful', async (t) =
   assert.equal(pre.status, 404)
   assert.equal(pre.headers.get('access-control-allow-origin'), null)
 })
+
+test('the warning banner appears only when the phone can control the laptop', async (t) => {
+  const quiet = await boot()
+  t.after(() => quiet.close())
+  assert.doesNotMatch(await (await fetch(quiet.url + '/')).text(), /CONTROLS THE LAPTOP/)
+  const loud = await startPhoneServer({ password: PASSWORD, port: 0, host: '127.0.0.1', ask: async () => 'x', writes: true })
+  t.after(() => loud.close())
+  const html = await (await fetch(`http://127.0.0.1:${loud.port}/`)).text()
+  assert.match(html, /CONTROLS THE LAPTOP/)
+  assert.doesNotMatch(html, /style="/)
+})

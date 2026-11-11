@@ -1122,48 +1122,58 @@ if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
   if (BRAIN === 'claude') {
     console.log('[jarvis] phone access (telegram, wifi page) works with the gemini and ollama brains, not claude. Not started.')
   } else {
-    const phoneQuery =
-      BRAIN === 'gemini'
-        ? createGeminiQuery({ apiKey: GEMINI_KEY, model: GEMINI_MODEL, allowWrites: false })
-        : createOllamaQuery({ model: OLLAMA_MODEL, url: OLLAMA_URL, allowWrites: false })
-    const phonePrompt =
-      PROMPT_CORE +
-      (DISABLED.has('memory') ? '' : memoryPrompt(MEMORY_DIR)) +
-      (GOOGLE_ON ? googlePrompt : '') +
-      localPrompt({ writes: false, keys: false, files: true, gemini: false }) +
-      '\n\nYou are replying by text message, not speaking. Write plain text with no markdown, ' +
-      'keep it short, and ignore any instruction above about panels, blades or speech.\n' +
-      'This channel is READ-ONLY: you cannot open programs or websites, type, click, press keys, ' +
-      'change files or ask other apps. If asked to do any of that, say plainly that you cannot from here. ' +
-      'Never claim you did something unless a tool result in this conversation confirmed it, and never invent facts, ' +
-      'account names or results.\n'
-    const sessions = new Map()
-    /** One conversation per person, whichever way they reach us. */
-    const askFromPhone = (who, text) => {
-      let session = sessions.get(who)
-      if (!session) {
-        session = createTextSession(phoneQuery, {
-          systemPrompt: phonePrompt,
-          mcpServers: {
-            ...(DISABLED.has('memory') ? {} : { jarvis_memory: memoryServer(MEMORY_DIR) }),
-            ...(GOOGLE_ON ? { jarvis_google: googleServer() } : {}),
-            jarvis_local: localServer({ workspace: WORKSPACE, roots: TOOL_ROOTS, allowWrites: false, files: true }),
-          },
+    /**
+     * One brain and set of conversations per trust level. Telegram only knows who
+     * you are by an ID, so it is always read-only. The Wi-Fi / Tailscale page can
+     * control the laptop, but only when JARVIS_PHONE_WRITES=1 AND Jarvis itself
+     * was started with writes.
+     */
+    const makeAsker = (writes) => {
+      const phoneQuery =
+        BRAIN === 'gemini'
+          ? createGeminiQuery({ apiKey: GEMINI_KEY, model: GEMINI_MODEL, allowWrites: writes })
+          : createOllamaQuery({ model: OLLAMA_MODEL, url: OLLAMA_URL, allowWrites: writes })
+      const win = writes && process.platform === 'win32'
+      const phonePrompt =
+        PROMPT_CORE +
+        (DISABLED.has('memory') ? '' : memoryPrompt(MEMORY_DIR)) +
+        (GOOGLE_ON ? googlePrompt : '') +
+        localPrompt({ writes, keys: win, files: true, gemini: win, desktop: win }) +
+        '\n\nYou are replying by text message, not speaking. Write plain text with no markdown, ' +
+        'keep it short, and ignore any instruction above about panels, blades or speech.\n' +
+        (writes
+          ? 'You can control this laptop only with the tools listed above. '
+          : 'This channel is READ-ONLY: you cannot open programs or websites, type, click, press keys, change files or ask other apps. If asked to do any of that, say plainly that you cannot from here. ') +
+        'Never claim you did something unless a tool result in this conversation confirmed it, and never invent facts, account names or results.\n'
+      const sessions = new Map()
+      /** One conversation per person, whichever way they reach us. */
+      return (who, text) => {
+        let session = sessions.get(who)
+        if (!session) {
+          session = createTextSession(phoneQuery, {
+            systemPrompt: phonePrompt,
+            mcpServers: {
+              ...(DISABLED.has('memory') ? {} : { jarvis_memory: memoryServer(MEMORY_DIR) }),
+              ...(GOOGLE_ON ? { jarvis_google: googleServer() } : {}),
+              jarvis_local: localServer({ workspace: WORKSPACE, roots: TOOL_ROOTS, allowWrites: writes, files: true }),
+            },
+          })
+          sessions.set(who, session)
+        }
+        if (!DISABLED.has('memory')) logTurn(MEMORY_DIR, 'user', text)
+        return session.ask(text).then((answer) => {
+          if (!DISABLED.has('memory')) logTurn(MEMORY_DIR, 'jarvis', answer)
+          return answer
         })
-        sessions.set(who, session)
       }
-      if (!DISABLED.has('memory')) logTurn(MEMORY_DIR, 'user', text)
-      return session.ask(text).then((answer) => {
-        if (!DISABLED.has('memory')) logTurn(MEMORY_DIR, 'jarvis', answer)
-        return answer
-      })
     }
+    const askReadOnly = makeAsker(false)
 
     if (TELEGRAM_TOKEN) {
       const allowed = new Set(
         (process.env.JARVIS_TELEGRAM_ALLOWED ?? '').split(',').map((s) => s.trim()).filter(Boolean),
       )
-      startTelegram({ token: TELEGRAM_TOKEN, allowed, ask: (who, text) => askFromPhone(`telegram:${who}`, text) })
+      startTelegram({ token: TELEGRAM_TOKEN, allowed, ask: (who, text) => askReadOnly(`telegram:${who}`, text) })
       console.log(
         allowed.size
           ? `[jarvis] telegram bot on, answering ${allowed.size} account(s), read-only`
@@ -1172,23 +1182,30 @@ if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
     }
 
     if (PHONE_PASSWORD) {
-      if (PHONE_PASSWORD.length < 8) {
-        console.log('[jarvis] wifi phone page NOT started: JARVIS_PHONE_PASSWORD must be at least 8 characters.')
+      const phoneWrites = process.env.JARVIS_PHONE_WRITES === '1' && ALLOW_WRITES
+      if (process.env.JARVIS_PHONE_WRITES === '1' && !ALLOW_WRITES) {
+        console.log('[jarvis] JARVIS_PHONE_WRITES=1 needs Jarvis started with writes (Jarvis.cmd does). The phone page stays read-only.')
+      }
+      const minLength = phoneWrites ? 12 : 8
+      if (PHONE_PASSWORD.length < minLength) {
+        console.log(`[jarvis] wifi phone page NOT started: JARVIS_PHONE_PASSWORD must be at least ${minLength} characters${phoneWrites ? ' when the phone can control the laptop' : ''}.`)
       } else {
+        const askPhonePage = phoneWrites ? makeAsker(true) : askReadOnly
         const phonePort = Number(process.env.JARVIS_PHONE_PORT ?? 8788)
         startPhoneServer({
           password: PHONE_PASSWORD,
           port: phonePort,
           host: process.env.JARVIS_PHONE_HOST ?? '0.0.0.0',
           allowPublic: process.env.JARVIS_PHONE_ALLOW_PUBLIC === '1',
-          ask: (text) => askFromPhone('wifi', text),
+          writes: phoneWrites,
+          ask: (text) => askPhonePage('wifi', text),
         })
           .then(({ port }) => {
             const addresses = Object.values(networkInterfaces())
               .flat()
               .filter((a) => a && a.family === 'IPv4' && !a.internal)
               .map((a) => `http://${a.address}:${port}`)
-            console.log(`[jarvis] wifi phone page on, read-only, password protected. On your phone, open: ${addresses.join(' or ') || `port ${port}`}`)
+            console.log(`[jarvis] wifi phone page on, ${phoneWrites ? 'CAN CONTROL THE LAPTOP' : 'read-only'}, password protected. On your phone, open: ${addresses.join(' or ') || `port ${port}`}`)
           })
           .catch((err) => console.log(`[jarvis] wifi phone page could not start: ${err.message}`))
       }

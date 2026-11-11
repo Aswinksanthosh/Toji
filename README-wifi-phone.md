@@ -26,3 +26,18 @@ the laptop only.
 - Home Wi-Fi traffic here is not encrypted. Do not use it on a network you don't trust.
 
 Change the port with `JARVIS_PHONE_PORT`. Turn it off by removing `JARVIS_PHONE_PASSWORD`.
+
+## Over Tailscale (from anywhere, encrypted)
+Install Tailscale on the laptop and the phone, sign in to the same account, and open
+`http://<the laptop's 100.x.x.x address>:8788` on the phone with Tailscale switched on.
+Allow it through Windows Firewall for Tailscale addresses only (Administrator PowerShell):
+`New-NetFirewallRule -DisplayName "Jarvis phone page (Tailscale)" -Direction Inbound -Protocol TCP -LocalPort 8788 -Action Allow -Profile Any -RemoteAddress 100.64.0.0/10`
+
+## Letting the phone control the laptop (off by default)
+Set `JARVIS_PHONE_WRITES=1` (and start Jarvis with writes, which Jarvis.cmd does). The
+phone page can then open apps and sites, ask the Gemini app, type, click, press
+shortcuts, lock, sleep and write files in the allowed folders. The same safety rules
+apply as on the laptop: typing and clicking are refused while a terminal has focus,
+and apps open from your list only. The page shows a warning banner while this is on.
+A password of at least 12 characters is required. Telegram always stays read-only.
+Anyone with your phone and password could do all of this, so lock your phone.
