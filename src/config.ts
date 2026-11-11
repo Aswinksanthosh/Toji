@@ -95,14 +95,23 @@ export const USE_ELEVENLABS = flag(
  * Skip the start-up sequence: no boot screen, no boot sound, and none of the
  * nine-second wait before he is ready. Set VITE_SKIP_INTRO=1 in .env.local.
  */
-export const SKIP_INTRO = flag('VITE_SKIP_INTRO', import.meta.env.VITE_SKIP_INTRO, false)
+/**
+ * Calm mode: every animation off. No 3D reactor, no start-up sequence, and no
+ * motion anywhere in the interface (pulses, fades, slides, typing effects).
+ * Set VITE_CALM=1 in .env.local. Overrides the two switches below.
+ */
+export const CALM = flag('VITE_CALM', import.meta.env.VITE_CALM, false)
+if (CALM && typeof document !== 'undefined') document.documentElement.classList.add('calm')
+
+export const SKIP_INTRO =
+  CALM || flag('VITE_SKIP_INTRO', import.meta.env.VITE_SKIP_INTRO, false)
 
 /**
  * The 3D reactor and its motion. Set VITE_ANIMATIONS=0 in .env.local to turn it
  * off. The text interface still works, and WebGL is never started, which also
  * sidesteps graphics-driver crashes.
  */
-export const ANIMATIONS = flag('VITE_ANIMATIONS', import.meta.env.VITE_ANIMATIONS, true)
+export const ANIMATIONS = !CALM && flag('VITE_ANIMATIONS', import.meta.env.VITE_ANIMATIONS, true)
 
 /**
  * Speech engine.

@@ -1903,7 +1903,7 @@ kbd {
 .typebar {
   position: fixed;
   left: 50%;
-  bottom: 128px;
+  bottom: 58px;
   transform: translateX(-50%);
   width: min(560px, 86vw);
   display: flex;
@@ -1944,4 +1944,14 @@ kbd {
 .typebar .silent.on {
   color: #ffd27a;
   border-color: rgba(255, 190, 90, 0.7);
+}
+
+/* Calm mode (VITE_CALM=1): no motion anywhere. Things that only exist to move
+   (rotating rings, scan lines) are left still rather than hidden. */
+html.calm *,
+html.calm *::before,
+html.calm *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
 }
