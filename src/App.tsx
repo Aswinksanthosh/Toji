@@ -603,6 +603,15 @@ export default function App() {
         return
       }
 
+      // F toggles full screen. Browsers only allow this from a real key press
+      // or click, so it cannot be triggered by voice.
+      if (e.key === 'f' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        if (document.fullscreenElement) void document.exitFullscreen()
+        else void document.documentElement.requestFullscreen().catch(() => {})
+        return
+      }
+
       // G puts the camera on and starts tracking hands. Off by default and
       // never implicit: a webcam that turns itself on because an interface
       // thought it might be useful is not a trade anyone agreed to.
