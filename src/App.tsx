@@ -13,7 +13,7 @@ import * as hands from './lib/hands'
 import { listenForClap } from './lib/clap'
 import * as camera from './lib/camera'
 import * as kokoro from './lib/kokoro'
-import { ANIMATIONS, SKIP_INTRO, TTS_ENGINE } from './config'
+import { ANIMATIONS, BARGE_IN, SKIP_INTRO, TTS_ENGINE } from './config'
 import { forTool, attention } from './lib/fillers'
 import {
   ask,
@@ -267,13 +267,16 @@ export default function App() {
    * Someone started talking. This is the whole point of the rewrite: he stops,
    * immediately, whatever he was doing.
    */
-  const onSpeechStart = () => {
+  const onSpeechStart = (force?: unknown) => {
     clearIdle()
     const phase = store.getState().phase
     if (phase === 'offline' || phase === 'boot' || phase === 'dormant') return
 
     const wasBusy =
       phase === 'thinking' || phase === 'tooling' || phase === 'speaking'
+    // With barge-in off, a sound alone never cancels an answer. Space and typing
+    // pass force = true, so they still do.
+    if (!BARGE_IN && wasBusy && force !== true) return
 
     silence()
     if (wasBusy) {
@@ -292,6 +295,9 @@ export default function App() {
   const onUtterance = (text: string) => {
     const phase = store.getState().phase
     if (phase === 'offline' || phase === 'boot' || phase === 'dormant') return
+    // With barge-in off, speech heard while he is busy is ignored, so his own
+    // voice coming back through the microphone cannot start a new question.
+    if (!BARGE_IN && (phase === 'thinking' || phase === 'tooling' || phase === 'speaking')) return
 
     // People keep using his name as a vocative once they're already talking to
     // him. Strip it rather than sending "jarvis" to the model as a question.
@@ -314,7 +320,7 @@ export default function App() {
     if (phase === 'offline' || phase === 'boot') return
     const text = raw.trim()
     if (!text) return
-    onSpeechStart() // stop whatever he was doing, as if someone started talking
+    onSpeechStart(true) // stop whatever he was doing, as if someone started talking
     void respond(text.replace(LEADING_NAME, '').trim() || text)
   }
 
@@ -703,7 +709,7 @@ export default function App() {
         phase === 'tooling' ||
         phase === 'speaking'
       ) {
-        onSpeechStart()
+        onSpeechStart(true)
         listen(AWAIT_SPEECH_MS)
       } else {
         onWake('')

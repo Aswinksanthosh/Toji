@@ -103,6 +103,14 @@ export const USE_ELEVENLABS = flag(
 export const CALM = flag('VITE_CALM', import.meta.env.VITE_CALM, false)
 if (CALM && typeof document !== 'undefined') document.documentElement.classList.add('calm')
 
+/**
+ * Barge-in: he stops talking, and abandons his answer, the moment he hears a
+ * sound. Great with headphones. Without them his own voice or room noise can
+ * cancel every question before it is answered. Set VITE_BARGE_IN=0 to turn it
+ * off: only Space, typing or the stop word then interrupt him.
+ */
+export const BARGE_IN = flag('VITE_BARGE_IN', import.meta.env.VITE_BARGE_IN, true)
+
 export const SKIP_INTRO =
   CALM || flag('VITE_SKIP_INTRO', import.meta.env.VITE_SKIP_INTRO, false)
 
