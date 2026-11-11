@@ -94,6 +94,9 @@ function plainReason(text) {
   if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED|\b40[13]\b/i.test(text)) {
     return 'The Gemini key was not accepted. Check GEMINI_API_KEY.'
   }
+  if (/NOT_FOUND|is not found|\b404\b/i.test(text)) {
+    return 'That Gemini model was not found. Run npm run gemini:models to see the available ones.'
+  }
   if (/quota|RESOURCE_EXHAUSTED|\b429\b/i.test(text)) {
     return 'The Gemini free limit has been reached for now. Try again later.'
   }
@@ -132,7 +135,14 @@ function flattenResult(result) {
  * `client` can be injected for tests.
  */
 export function createGeminiQuery({ apiKey, model = GEMINI_DEFAULT_MODEL, allowWrites = false, client }) {
-  const ai = client ?? new GoogleGenAI({ apiKey })
+  // The library defaults to the stable v1 API, which does not serve the
+  // "-latest" model aliases. v1beta does, and is where new models appear first.
+  const ai =
+    client ??
+    new GoogleGenAI({
+      apiKey,
+      apiVersion: process.env.JARVIS_GEMINI_API_VERSION || 'v1beta',
+    })
   const thinkingBudget = process.env.JARVIS_GEMINI_THINKING_BUDGET
 
   return function geminiQuery({ prompt, options = {} }) {
