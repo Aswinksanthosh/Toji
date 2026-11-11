@@ -111,7 +111,7 @@ test('read-only mode offers no tool that changes anything', async () => {
 
 test('writes mode adds file writing, and the keyboard only on Windows', async () => {
   const c = ctx()
-  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'win32' })), ['list_folder', 'make_folder', 'press_keys', 'read_file', 'write_file'])
+  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'win32' })), ['ask_gemini', 'list_folder', 'make_folder', 'press_keys', 'read_file', 'write_file'])
   assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'linux' })), ['list_folder', 'make_folder', 'read_file', 'write_file'])
 })
 
@@ -136,4 +136,33 @@ test('the permission gate: reads are free, changes need writes mode', () => {
   assert.equal(decideTool('mcp__jarvis_local__write_file', false), false)
   assert.equal(decideTool('mcp__jarvis_local__press_keys', false), false)
   assert.equal(decideTool('mcp__jarvis_local__press_keys', true), true)
+})
+
+test('ask_gemini passes a tidy question to the runner and labels the answer as untrusted', async () => {
+  const c = ctx()
+  const asked = []
+  const server = localServer({ ...c, allowWrites: true, platform: 'win32', ask: async (q) => (asked.push(q), 'You have two meetings.') })
+  const [a, b] = InMemoryTransport.createLinkedPair()
+  await server.instance.connect(b)
+  const client = new Client({ name: 't', version: '1' })
+  await client.connect(a)
+  const r = await client.callTool({ name: 'ask_gemini', arguments: { question: '  what is   on my calendar?\n' } })
+  assert.deepEqual(asked, ['what is on my calendar?'])
+  assert.match(r.content[0].text, /another AI/)
+  assert.match(r.content[0].text, /two meetings/)
+})
+
+test('ask_gemini reports a failure plainly, and is absent without writes mode or off Windows', async () => {
+  const c = ctx()
+  const server = localServer({ ...c, allowWrites: true, platform: 'win32', ask: async () => { throw new Error('Gemini did not produce an answer in time.') } })
+  const [a, b] = InMemoryTransport.createLinkedPair()
+  await server.instance.connect(b)
+  const client = new Client({ name: 't', version: '1' })
+  await client.connect(a)
+  const r = await client.callTool({ name: 'ask_gemini', arguments: { question: 'hi' } })
+  assert.equal(r.isError, true)
+  assert.match(r.content[0].text, /in time/)
+  assert.ok(!(await toolNames(localServer({ ...c, allowWrites: false, platform: 'win32' }))).includes('ask_gemini'))
+  assert.ok(!(await toolNames(localServer({ ...c, allowWrites: true, platform: 'linux' }))).includes('ask_gemini'))
+  assert.equal(decideTool('mcp__jarvis_local__ask_gemini', false), false)
 })
