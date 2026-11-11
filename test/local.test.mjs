@@ -111,7 +111,7 @@ test('read-only mode offers no tool that changes anything', async () => {
 
 test('writes mode adds file writing, and the keyboard only on Windows', async () => {
   const c = ctx()
-  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'win32' })), ['ask_gemini', 'click_element', 'list_clickable', 'list_folder', 'lock_screen', 'make_folder', 'open_app', 'open_url', 'press_keys', 'read_file', 'scroll', 'sleep_computer', 'type_text', 'write_file'])
+  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'win32' })), ['ask_gemini', 'click_element', 'list_clickable', 'list_folder', 'lock_screen', 'make_folder', 'open_app', 'open_url', 'play_youtube', 'press_keys', 'read_file', 'scroll', 'sleep_computer', 'type_text', 'write_file'])
   assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'linux' })), ['list_folder', 'make_folder', 'read_file', 'write_file'])
 })
 
@@ -263,4 +263,43 @@ test('none of the desktop tools exist without writes mode', async () => {
   for (const n of ['open_app', 'open_url', 'type_text', 'click_element', 'list_clickable', 'scroll', 'lock_screen', 'sleep_computer']) {
     assert.ok(!names.includes(n), n)
   }
+})
+
+import { youtubeTarget } from '../bridge/local.mjs'
+
+const page = (id) => ({ ok: true, text: async () => `...{"videoRenderer":{"videoId":"${id}","thumbnail":{}}...` })
+
+test('play_youtube opens the top result as a watch link that autoplays', async () => {
+  const seen = []
+  const fetchFn = async (url) => (seen.push(url), page('dQw4w9WgXcQ'))
+  assert.equal(await youtubeTarget('lo-fi beats & chill', fetchFn), 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&autoplay=1')
+  assert.equal(seen[0], 'https://www.youtube.com/results?search_query=lo-fi%20beats%20%26%20chill')
+})
+
+test('if YouTube cannot be read, the results page opens instead of nothing', async () => {
+  const results = 'https://www.youtube.com/results?search_query=jazz'
+  assert.equal(await youtubeTarget('jazz', async () => { throw new Error('offline') }), results)
+  assert.equal(await youtubeTarget('jazz', async () => ({ ok: false, text: async () => '' })), results)
+  assert.equal(await youtubeTarget('jazz', async () => ({ ok: true, text: async () => '<html>no videos</html>' })), results)
+})
+
+test('play_youtube launches in the browser you name, and open_url accepts a browser', async () => {
+  const launched = []
+  const client = await connected({ launch: async (t, o) => launched.push([t, o]), fetchFn: async () => page('abcdefghijk') })
+  const r = await client.callTool({ name: 'play_youtube', arguments: { query: 'relaxing piano', browser: 'brave' } })
+  assert.match(r.content[0].text, /Playing the top result/)
+  await client.callTool({ name: 'open_url', arguments: { url: 'https://example.com', browser: 'brave' } })
+  assert.deepEqual(launched, [
+    ['https://www.youtube.com/watch?v=abcdefghijk&autoplay=1', { web: true, browser: 'brave' }],
+    ['https://example.com/', { web: true, browser: 'brave' }],
+  ])
+  const bad = await client.callTool({ name: 'open_url', arguments: { url: 'https://example.com', browser: 'netscape' } }).catch((e) => ({ isError: true, e }))
+  assert.equal(bad.isError, true)
+})
+
+test('the video id is still found when the keys inside videoRenderer are in a different order', async () => {
+  const html = '..."videoRenderer":{"thumbnail":{"thumbnails":[{"url":"x"}]},"title":{"runs":[{"text":"A"}]},"videoId":"ZYXWVUTSRQP"}...'
+  assert.equal(await youtubeTarget('x', async () => ({ ok: true, text: async () => html })), 'https://www.youtube.com/watch?v=ZYXWVUTSRQP&autoplay=1')
+  const shortsOnly = '..."reelItemRenderer":{"videoId":"SHORTSSHORT"}...'
+  assert.equal(await youtubeTarget('x', async () => ({ ok: true, text: async () => shortsOnly })), 'https://www.youtube.com/results?search_query=x')
 })
