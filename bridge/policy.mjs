@@ -126,6 +126,9 @@ const VETO_EXEMPT = new Set([
   'openrouter__send-feedback',
 ])
 
+/** The jarvis_local tools that only look. */
+const LOCAL_READS = new Set(['list_folder', 'read_file'])
+
 export function decideTool(name, allowWrites = false) {
   if (READ_ONLY_BUILTINS.has(name)) return true
   if (WRITE_BUILTINS.has(name)) return allowWrites
@@ -157,6 +160,15 @@ export function decideTool(name, allowWrites = false) {
     // the memory folder, so they are safe without writes mode. They have to be
     // named here: `remember` and `forget` would otherwise read as effectful.
     if (server === 'jarvis_memory') return true
+
+    // Google Calendar and Gmail. Read-only by construction: the login asks only
+    // for read scopes and the server has no tool that sends or changes anything.
+    if (server === 'jarvis_google') return true
+
+    // Keyboard shortcuts and files. Listing and reading change nothing. Creating
+    // files and pressing keys do, so they wait for writes mode, and the server
+    // does not even build those tools unless it is on.
+    if (server === 'jarvis_local') return LOCAL_READS.has(mcpToolOf(name)) ? true : allowWrites
 
     const tool = mcpToolOf(name)
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {

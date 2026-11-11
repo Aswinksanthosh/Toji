@@ -23,6 +23,8 @@ import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
 import { logTurn, memoryPrompt, memoryServer } from './memory.mjs'
 import { GEMINI_DEFAULT_MODEL, createGeminiQuery } from './gemini.mjs'
+import { googleConnected, googlePrompt, googleServer } from './google.mjs'
+import { localPrompt, localServer } from './local.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -313,6 +315,21 @@ const WORKSPACE = resolvePath(
 mkdirSync(WORKSPACE, { recursive: true })
 /** Saved notes and the conversation log. Turn off with JARVIS_DISABLE=memory. */
 const MEMORY_DIR = join(WORKSPACE, 'memory')
+
+const GOOGLE_ON = !DISABLED.has('google') && googleConnected()
+const LOCAL_SERVER = () =>
+  localServer({
+    workspace: WORKSPACE,
+    roots: TOOL_ROOTS,
+    allowWrites: ALLOW_WRITES,
+    files: BRAIN === 'gemini',
+  })
+const LOCAL_ON = !DISABLED.has('local') && (BRAIN === 'gemini' || (ALLOW_WRITES && process.platform === 'win32'))
+console.log(
+  GOOGLE_ON
+    ? '[jarvis] google calendar and mail connected (read only)'
+    : '[jarvis] google not connected - run npm run google:login to set it up',
+)
 
 const TOOL_ROOTS = fileRoots({
   workspace: WORKSPACE,
@@ -1354,13 +1371,24 @@ wss.on('connection', (socket) => {
         // Saved notes and past-conversation search. Only ever touches the
         // memory folder inside the workspace.
         ...(DISABLED.has('memory') ? {} : { jarvis_memory: memoryServer(MEMORY_DIR) }),
+        // Read-only Google Calendar and Gmail, once `npm run google:login` has run.
+        ...(GOOGLE_ON ? { jarvis_google: googleServer() } : {}),
+        // Keyboard shortcuts and files. The file tools are only offered to the
+        // Gemini brain, since Claude already has its own built in.
+        ...(LOCAL_ON ? { jarvis_local: LOCAL_SERVER() } : {}),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk
       // of input tokens on every turn. Replacing it makes the persona stick,
       // keeps answers short enough to speak, and cuts cost per turn.
       // Read per connection, so a note saved a minute ago is there next time.
-      systemPrompt: SYSTEM_PROMPT + (DISABLED.has('memory') ? '' : memoryPrompt(MEMORY_DIR)),
+      systemPrompt:
+        SYSTEM_PROMPT +
+        (DISABLED.has('memory') ? '' : memoryPrompt(MEMORY_DIR)) +
+        (GOOGLE_ON ? googlePrompt : '') +
+        (LOCAL_ON
+          ? localPrompt({ writes: ALLOW_WRITES, keys: ALLOW_WRITES && process.platform === 'win32', files: BRAIN === 'gemini' })
+          : ''),
       // Run from JARVIS's own workspace rather than the home directory. MCP
       // discovery does not depend on it — settingSources is empty and the
       // servers are passed in explicitly above — and file tools resolve
