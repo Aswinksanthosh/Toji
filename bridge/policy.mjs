@@ -153,6 +153,11 @@ export function decideTool(name, allowWrites = false) {
     // indicator the user can see for as long as it is live.
     if (server === 'jarvis_eyes') return true
 
+    // Saved notes and conversation search. The tools only ever read and write
+    // the memory folder, so they are safe without writes mode. They have to be
+    // named here: `remember` and `forget` would otherwise read as effectful.
+    if (server === 'jarvis_memory') return true
+
     const tool = mcpToolOf(name)
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
       return allowWrites
