@@ -96,8 +96,11 @@ Step 'window found, bringing it to the front'
 Start-Sleep -Milliseconds 400
 Step 'reading what is on screen before sending'
 
+# How many times each piece of text was already on screen before we asked, so
+# only genuinely new pieces count (a word like ", and" can legitimately repeat).
 $seen = @{}
-foreach ($i in (Snapshot $t.Root)) { $seen[$i.Name] = $true }
+$before = Snapshot $t.Root
+foreach ($i in $before) { $seen[$i.Name] = 1 + [int]$seen[$i.Name] }
 
 $oldClip = $null
 try { $oldClip = Get-Clipboard -Raw } catch {}
@@ -117,12 +120,17 @@ try {
   $answer = ''
   while ((Get-Date) -lt $deadline) {
     Start-Sleep -Seconds 1
-    $fresh = @(Snapshot $t.Root | Where-Object {
-      -not $seen.ContainsKey($_.Name) -and
-      $_.Kind -in @('Text', 'Document', 'Group', 'ListItem') -and
-      $_.Name -ne $question -and -not $question.Contains($_.Name)
-    })
-    $text = ($fresh | ForEach-Object { $_.Name } | Select-Object -Unique) -join "`n"
+    # The answer arrives as many small Text pieces, in order. Keep the new ones
+    # and join them as they are (they carry their own spaces).
+    $snap = Snapshot $t.Root
+    $run = @{}
+    $fresh = New-Object System.Collections.Generic.List[string]
+    foreach ($i in $snap) {
+      if ($i.Kind -ne 'Text') { continue }
+      $run[$i.Name] = 1 + [int]$run[$i.Name]
+      if ($run[$i.Name] -gt [int]$seen[$i.Name] -and $i.Name -ne $question) { $fresh.Add($i.Name) }
+    }
+    $text = (($fresh -join '') -replace '\s+', ' ').Trim()
     if ($text -and $text -eq $last) { $stable++ } else { $stable = 0 }
     $last = $text
     if ($text -and $stable -ge 4) { $answer = $text; break }
