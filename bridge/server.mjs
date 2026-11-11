@@ -1119,9 +1119,12 @@ const server = http.createServer((req, res) => {
 const TELEGRAM_TOKEN = process.env.JARVIS_TELEGRAM_TOKEN ?? ''
 const PHONE_PASSWORD = process.env.JARVIS_PHONE_PASSWORD ?? ''
 if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
-  if (BRAIN === 'claude') {
-    console.log('[jarvis] phone access (telegram, wifi page) works with the gemini and ollama brains, not claude. Not started.')
+  // The Claude brain cannot serve the phone, so under Claude the phone uses Gemini.
+  const PHONE_BRAIN = BRAIN === 'claude' ? (GEMINI_KEY ? 'gemini' : null) : BRAIN
+  if (!PHONE_BRAIN) {
+    console.log('[jarvis] phone access needs a Gemini key (or the gemini or ollama brain) when Claude runs the page. Not started.')
   } else {
+    if (BRAIN === 'claude') console.log('[jarvis] phone access uses Gemini while Claude runs the page.')
     /**
      * One brain and set of conversations per trust level. Telegram only knows who
      * you are by an ID, so it is always read-only. The Wi-Fi / Tailscale page can
@@ -1130,7 +1133,7 @@ if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
      */
     const makeAsker = (writes) => {
       const phoneQuery =
-        BRAIN === 'gemini'
+        PHONE_BRAIN === 'gemini'
           ? createGeminiQuery({ apiKey: GEMINI_KEY, model: GEMINI_MODEL, allowWrites: writes })
           : createOllamaQuery({ model: OLLAMA_MODEL, url: OLLAMA_URL, allowWrites: writes })
       const win = writes && process.platform === 'win32'
