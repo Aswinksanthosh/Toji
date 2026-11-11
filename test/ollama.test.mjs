@@ -40,18 +40,40 @@ async function collect(stream, results = 1) {
 test('a plain answer streams and ends in success', async () => {
   const fetchFn = fakeFetch([[{ message: { content: 'Hello, ' } }, { message: { content: 'sir.' }, done: true }]])
   const msgs = await collect(createOllamaQuery({ fetchFn })({ prompt: one('hi'), options: { systemPrompt: 'be brief' } }))
-  assert.deepEqual(msgs.filter((m) => m.type === 'stream_event').map((m) => m.event.delta.text), ['Hello, ', 'sir.'])
+  // Short answers are released together once the filter knows they are not reasoning.
+  assert.equal(msgs.filter((m) => m.type === 'stream_event').map((m) => m.event.delta.text).join(''), 'Hello, sir.')
   assert.equal(msgs.at(-1).result, 'Hello, sir.')
-  assert.equal(fetchFn.requests[0].messages[0].content, 'be brief')
+  assert.match(fetchFn.requests[0].messages[0].content, /^be brief/)
   assert.equal(fetchFn.requests[0].stream, true)
 })
 
+const feed = (chunks, opts) => {
+  const f = thinkFilter(opts)
+  return chunks.map((c) => f.push(c)).join('') + f.end()
+}
+
 test('reasoning inside <think> tags is never spoken, even when a tag is split across chunks', () => {
-  const f = thinkFilter()
-  const out = ['Hi <th', 'ink>secret plan</thi', 'nk> there'].map(f).join('')
-  assert.equal(out, 'Hi  there')
-  const g = thinkFilter()
-  assert.equal(['A < B', ' and C'].map(g).join(''), 'A < B and C')
+  assert.equal(feed(['Hi <th', 'ink>secret plan</thi', 'nk> there']), 'Hi  there')
+  assert.equal(feed(['A < B', ' and C']), 'A < B and C')
+})
+
+test('reasoning that ends in a closing tag with no opening tag is dropped (the bug seen on screen)', () => {
+  const leaked = ['Okay, let me figure out how to handle this. ', 'The user is just greeting me.', ' </think> I am doing well, thanks!']
+  assert.equal(feed(leaked), ' I am doing well, thanks!')
+  // Even when the closing tag is split across chunks.
+  assert.equal(feed(['long reasoning ', '</thi', 'nk>Answer.']), 'Answer.')
+})
+
+test('a plain short answer is released at the end, and a long one starts streaming early', () => {
+  assert.equal(feed(['Hello, ', 'sir.']), 'Hello, sir.')
+  const f = thinkFilter({ holdChars: 10 })
+  assert.equal(f.push('short'), '')
+  assert.equal(f.push(' and then more'), 'short and then more')
+  assert.equal(f.push(' keeps flowing'), ' keeps flowing')
+})
+
+test('an opened but never closed think block is dropped', () => {
+  assert.equal(feed(['<think>musing forever']), '')
 })
 
 test('a tool call runs the real memory tool and the model sees the result', async () => {
@@ -104,10 +126,10 @@ test('a failed turn is forgotten so the next one still works', async () => {
   assert.equal(fetchFn.requests[1].messages.filter((m) => m.role === 'user').length, 1)
 })
 
-test('interrupt aborts the turn in flight', async () => {
+test('interrupt aborts the turn in flight, even while the start of the answer is still held back', async () => {
   let release
   const gate = new Promise((r) => (release = r))
-  const fetchFn = async (url, init) => ({
+  const fetchFn = async () => ({
     ok: true,
     body: (async function* () {
       yield JSON.stringify({ message: { content: 'partial' } }) + '\n'
@@ -116,10 +138,13 @@ test('interrupt aborts the turn in flight', async () => {
     })(),
   })
   const q = createOllamaQuery({ fetchFn })({ prompt: one('long'), options: {} })
+  setTimeout(async () => {
+    await q.interrupt()
+    release()
+  }, 50)
   const seen = []
   for await (const m of q) {
     seen.push(m)
-    if (m.type === 'stream_event') { await q.interrupt(); release() }
     if (m.type === 'result') break
   }
   assert.equal(seen.at(-1).subtype, 'error_during_execution')
@@ -148,4 +173,15 @@ test('JARVIS_OLLAMA_THINK=1 leaves thinking on', async () => {
   }
   await collect(createOllamaQuery({ fetchFn, think: true })({ prompt: one('hi'), options: {} }))
   assert.equal(calls[0].think, undefined)
+})
+
+test('Qwen3 models get a no-think switch in the prompt, other models and thinking-on do not', async () => {
+  const run = async (model, think) => {
+    const fetchFn = fakeFetch([[{ message: { content: 'ok' } }]])
+    await collect(createOllamaQuery({ fetchFn, model, think })({ prompt: one('hi'), options: { systemPrompt: 'sys' } }))
+    return fetchFn.requests[0].messages[0].content
+  }
+  assert.equal(await run('qwen3:4b', false), 'sys\n/no_think')
+  assert.equal(await run('llama3.2:3b', false), 'sys')
+  assert.equal(await run('qwen3:4b', true), 'sys')
 })

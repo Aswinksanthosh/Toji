@@ -29,11 +29,8 @@ export function ollamaReason(text) {
   return undefined
 }
 
-/**
- * Some models write their reasoning inside <think> tags. It is not for speaking.
- * Streams through a state machine because a tag can be split across chunks.
- */
-export function thinkFilter() {
+/** Streaming remover for complete <think>...</think> blocks. */
+function tagFilter() {
   let inThink = false
   let held = ''
   return (chunk) => {
@@ -66,6 +63,58 @@ export function thinkFilter() {
         inThink = true
       }
     }
+  }
+}
+
+/** How much text is held back while deciding whether it is reasoning. */
+const HOLD_CHARS = 4000
+
+/**
+ * Keeps a model's reasoning off the screen and out of the speaker.
+ *
+ * Some models write reasoning and then a closing </think> with NO opening tag,
+ * because the template already opened it. So the start of an answer cannot be
+ * trusted until either a </think> arrives (everything before it is reasoning
+ * and is dropped) or enough text has passed without one (it was just an answer).
+ * Jarvis answers are short, so holding the first few thousand characters costs
+ * very little. Call push() per chunk and end() when the stream finishes.
+ */
+export function thinkFilter({ holdChars = HOLD_CHARS } = {}) {
+  const tag = tagFilter()
+  let buf = ''
+  let deciding = true
+  return {
+    push(chunk) {
+      if (!deciding) return tag(chunk)
+      buf += chunk
+      const close = buf.indexOf('</think>')
+      if (close !== -1) {
+        // A normal <think>...</think> pair keeps the words around it. A closing
+        // tag on its own means everything before it was reasoning.
+        const open = buf.indexOf('<think>')
+        const out = open !== -1 && open < close ? tag(buf) : tag(buf.slice(close + 8))
+        buf = ''
+        deciding = false
+        return out
+      }
+      // An opened block that has not closed yet: keep holding, however long.
+      if (buf.includes('<think>')) return ''
+      if (buf.length >= holdChars) {
+        const out = tag(buf)
+        buf = ''
+        deciding = false
+        return out
+      }
+      return ''
+    },
+    end() {
+      if (!deciding) return ''
+      deciding = false
+      if (buf.includes('<think>')) return ''
+      const out = tag(buf)
+      buf = ''
+      return out
+    },
   }
 }
 
@@ -111,6 +160,10 @@ export function createOllamaQuery({
       }
     }
 
+    // Qwen3 models obey a soft switch in the prompt even when the setting is ignored.
+    const systemText =
+      (options.systemPrompt ?? '') + (!think && /qwen3/i.test(model) ? '\n/no_think' : '')
+
     async function* run() {
       tools = await connectTools(options.mcpServers)
       const toolList = tools.declarations.map((d) => ({
@@ -147,7 +200,7 @@ export function createOllamaQuery({
                 body: JSON.stringify({
                   model,
                   stream: true,
-                  messages: [{ role: 'system', content: options.systemPrompt ?? '' }, ...history],
+                  messages: [{ role: 'system', content: systemText }, ...history],
                   ...(toolList.length ? { tools: toolList } : {}),
                   ...(withThink ? { think: false } : {}),
                 }),
@@ -167,7 +220,7 @@ export function createOllamaQuery({
             for await (const part of ndjson(res.body)) {
               if (ac.signal.aborted) throw new Error('aborted')
               if (part.error) throw new Error(String(part.error))
-              const delta = filter(part.message?.content ?? '')
+              const delta = filter.push(part.message?.content ?? '')
               if (delta) {
                 stepText += delta
                 spoken += delta
@@ -177,6 +230,15 @@ export function createOllamaQuery({
                 }
               }
               for (const c of part.message?.tool_calls ?? []) calls.push(c.function ?? c)
+            }
+            const tail = filter.end()
+            if (tail) {
+              stepText += tail
+              spoken += tail
+              yield {
+                type: 'stream_event',
+                event: { type: 'content_block_delta', delta: { type: 'text_delta', text: tail } },
+              }
             }
             if (ac.signal.aborted) throw new Error('aborted')
 
