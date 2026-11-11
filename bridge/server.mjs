@@ -1120,11 +1120,11 @@ const TELEGRAM_TOKEN = process.env.JARVIS_TELEGRAM_TOKEN ?? ''
 const PHONE_PASSWORD = process.env.JARVIS_PHONE_PASSWORD ?? ''
 if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
   // The Claude brain cannot serve the phone, so under Claude the phone uses Gemini.
-  const PHONE_BRAIN = BRAIN === 'claude' ? (GEMINI_KEY ? 'gemini' : null) : BRAIN
-  if (!PHONE_BRAIN) {
-    console.log('[jarvis] phone access needs a Gemini key (or the gemini or ollama brain) when Claude runs the page. Not started.')
-  } else {
-    if (BRAIN === 'claude') console.log('[jarvis] phone access uses Gemini while Claude runs the page.')
+  const PHONE_BRAIN = BRAIN === 'claude' ? (GEMINI_KEY ? 'gemini' : 'ollama') : BRAIN
+  {
+    if (BRAIN === 'claude') {
+      console.log(`[jarvis] phone access uses ${PHONE_BRAIN === 'gemini' ? 'Gemini' : 'your local model (Ollama)'} while Claude runs the page.`)
+    }
     /**
      * One brain and set of conversations per trust level. Telegram only knows who
      * you are by an ID, so it is always read-only. The Wi-Fi / Tailscale page can

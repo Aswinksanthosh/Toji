@@ -63,8 +63,36 @@ function Test-Ollama {
   }
 }
 
+# Makes sure Ollama is running and the model is downloaded. When it is only
+# needed for the phone page (not as the main brain), problems are warnings, not stops.
+function Start-OllamaBrain([bool]$required) {
+  $problem = {
+    param($text)
+    if ($required) { Fail $text } else { Say ("Phone page: " + $text); return $false }
+  }
+  if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+    return (& $problem 'Ollama is not installed. Get it from https://ollama.com/download and run this again.')
+  }
+  if (-not (Test-Ollama)) {
+    Say 'Starting Ollama.'
+    Start-Process ollama -ArgumentList 'serve' -WindowStyle Hidden
+    for ($i = 0; $i -lt 20 -and -not (Test-Ollama); $i++) { Start-Sleep -Seconds 1 }
+    if (-not (Test-Ollama)) { return (& $problem 'Ollama did not start.') }
+  }
+  $installed = (& ollama list) -join "`n"
+  if ($installed -notmatch [regex]::Escape($model)) {
+    Say ("Downloading the model {0}. This only happens once." -f $model)
+    & ollama pull $model
+    if ($LASTEXITCODE -ne 0) { return (& $problem 'Could not download the model.') }
+  }
+  $env:JARVIS_OLLAMA_MODEL = $model
+  return $true
+}
+
+$hasGeminiKey = [bool]($env:GEMINI_API_KEY -or $env:GOOGLE_API_KEY)
+
 if ($env:JARVIS_BRAIN -eq 'gemini') {
-  if (-not $env:GEMINI_API_KEY -and -not $env:GOOGLE_API_KEY) {
+  if (-not $hasGeminiKey) {
     Fail 'No Gemini key found. Create a free one at https://aistudio.google.com and save it as GEMINI_API_KEY.'
   }
   Say 'Using the Gemini brain (online).'
@@ -73,24 +101,15 @@ if ($env:JARVIS_BRAIN -eq 'gemini') {
     Fail 'The Claude brain needs Claude Code installed and logged in: npm install -g @anthropic-ai/claude-code, then run claude once.'
   }
   Say 'Using the Claude brain (online, uses your Claude subscription).'
+  # The phone page cannot use Claude. It uses Gemini if you have a key, otherwise
+  # your free local model, which is started here.
+  if ($env:JARVIS_PHONE_PASSWORD -and -not $hasGeminiKey) {
+    Say 'No Gemini key, so the phone page will use your local model.'
+    [void](Start-OllamaBrain $false)
+  }
 } else {
   $env:JARVIS_BRAIN = 'ollama'
-  if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
-    Fail 'Ollama is not installed. Get it from https://ollama.com/download and run this again.'
-  }
-  if (-not (Test-Ollama)) {
-    Say 'Starting Ollama.'
-    Start-Process ollama -ArgumentList 'serve' -WindowStyle Hidden
-    for ($i = 0; $i -lt 20 -and -not (Test-Ollama); $i++) { Start-Sleep -Seconds 1 }
-    if (-not (Test-Ollama)) { Fail 'Ollama did not start.' }
-  }
-  $installed = (& ollama list) -join "`n"
-  if ($installed -notmatch [regex]::Escape($model)) {
-    Say ("Downloading the model {0}. This only happens once." -f $model)
-    & ollama pull $model
-    if ($LASTEXITCODE -ne 0) { Fail 'Could not download the model.' }
-  }
-  $env:JARVIS_OLLAMA_MODEL = $model
+  [void](Start-OllamaBrain $true)
   Say ("Local brain ready: {0}." -f $model)
 }
 
