@@ -24,6 +24,16 @@ function Fail($text) {
   exit 1
 }
 
+# Settings saved with SetEnvironmentVariable(..., "User") are not seen by programs
+# started from an already-running Explorer (a double-click). Read them from the
+# saved values here, so a double-click behaves the same as a fresh PowerShell.
+$saved = [Environment]::GetEnvironmentVariables('User')
+foreach ($name in $saved.Keys) {
+  if ($name -match '^(JARVIS_|GEMINI_API_KEY$|GOOGLE_API_KEY$)' -and -not [Environment]::GetEnvironmentVariable($name, 'Process')) {
+    [Environment]::SetEnvironmentVariable($name, [string]$saved[$name], 'Process')
+  }
+}
+
 $url = 'http://localhost:5173'
 $model = 'qwen3:4b'
 if ($env:JARVIS_OLLAMA_MODEL) { $model = $env:JARVIS_OLLAMA_MODEL }
