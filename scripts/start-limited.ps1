@@ -52,8 +52,7 @@ if ($null -eq $original) {
       $changed = $true
       Write-Host ("Now limited to {0} W." -f $now)
     } else {
-      Write-Host ("The card reports {0} W, not {1} W. Your laptop may not accept the change." -f $now, $watts)
-      $changed = $true
+      Write-Host ("The card still reports {0} W. This laptop does not allow the power limit to be changed, so none was applied." -f $now)
     }
   } else {
     Write-Host "Could not change the limit (permission refused, or the laptop blocks it). Starting Jarvis normally."
