@@ -16,6 +16,12 @@ using System.Runtime.InteropServices;
 public class JK { [DllImport("user32.dll")] public static extern void keybd_event(byte b, byte s, int f, int e); }
 "@
 
+# Never fail silently: say what went wrong, and exit with its own code.
+trap {
+  [Console]::Error.WriteLine('error: ' + $_.Exception.Message)
+  exit 9
+}
+
 $question = $env:JARVIS_Q
 $timeout = [Math]::Min([Math]::Max([int]$env:JARVIS_TIMEOUT, 10), 120)
 $debug = $env:JARVIS_DEBUG -eq '1'
@@ -83,8 +89,12 @@ if (-not $t) {
 }
 if (-not $t) { [Console]::Error.WriteLine('no gemini window'); exit 3 }
 
+function Step($text) { if ($debug) { [Console]::Error.WriteLine("step: $text") } }
+
+Step 'window found, bringing it to the front'
 [Microsoft.VisualBasic.Interaction]::AppActivate($t.Proc.Id)
 Start-Sleep -Milliseconds 400
+Step 'reading what is on screen before sending'
 
 $seen = @{}
 foreach ($i in (Snapshot $t.Root)) { $seen[$i.Name] = $true }
@@ -92,12 +102,14 @@ foreach ($i in (Snapshot $t.Root)) { $seen[$i.Name] = $true }
 $oldClip = $null
 try { $oldClip = Get-Clipboard -Raw } catch {}
 try {
+  Step 'pasting the question'
   Set-Clipboard -Value $question
   try { $t.Box.SetFocus() } catch {}
   Start-Sleep -Milliseconds 200
   Tap @(0x11) 0x56      # ctrl+v
   Start-Sleep -Milliseconds 400
   Tap @() 0x0D          # enter
+  Step 'question sent, waiting for the answer'
 
   $deadline = (Get-Date).AddSeconds($timeout)
   $last = ''
@@ -133,5 +145,6 @@ finally {
   if ($null -ne $oldClip) { try { Set-Clipboard -Value $oldClip } catch {} }
 }
 
+Step 'finished waiting'
 if (-not $answer) { [Console]::Error.WriteLine('no answer appeared'); exit 5 }
 [Console]::Out.WriteLine($answer)
