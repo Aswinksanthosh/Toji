@@ -15,9 +15,15 @@ $watts = 70
 if ($env:JARVIS_GPU_WATTS) { $watts = [int]$env:JARVIS_GPU_WATTS }
 
 function Get-Limit {
-  $out = & nvidia-smi --query-gpu=power.limit --format=csv,noheader,nounits 2>$null
-  if ($LASTEXITCODE -ne 0 -or -not $out) { return $null }
-  return [int][math]::Round([double]($out | Select-Object -First 1))
+  # The short query field reads N/A on some drivers, so read the full report.
+  $text = & nvidia-smi -q -d POWER 2>$null
+  if ($LASTEXITCODE -ne 0 -or -not $text) { return $null }
+  foreach ($line in $text) {
+    if ($line -match 'Current Power Limit\s*:\s*([0-9]+(\.[0-9]+)?)\s*W') {
+      return [int][math]::Round([double]$Matches[1])
+    }
+  }
+  return $null
 }
 
 function Set-Limit([int]$w) {
@@ -33,7 +39,11 @@ $original = Get-Limit
 $changed = $false
 
 if ($null -eq $original) {
-  Write-Host "nvidia-smi was not found, so no power limit can be set. Starting Jarvis normally."
+  if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+    Write-Host "Could not read the graphics power limit, so none will be set. Starting Jarvis normally."
+  } else {
+    Write-Host "nvidia-smi was not found, so no power limit can be set. Starting Jarvis normally."
+  }
 } else {
   Write-Host ("Graphics power limit is {0} W. Lowering it to {1} W while Jarvis runs." -f $original, $watts)
   if (Set-Limit $watts) {
