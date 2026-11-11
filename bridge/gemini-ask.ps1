@@ -116,7 +116,18 @@ try {
     if ($text -and $stable -ge 4) { $answer = $text; break }
   }
   if (-not $answer -and $last) { $answer = $last }
-  if ($debug) { foreach ($f in $fresh) { [Console]::Error.WriteLine(('{0}: {1}' -f $f.Kind, $f.Name)) } }
+  if ($debug) {
+    # Everything new in the window, of any kind, so we can see how the answer is exposed.
+    [Console]::Error.WriteLine('--- new in the window after sending (any kind) ---')
+    foreach ($i in (Snapshot $t.Root)) {
+      if (-not $seen.ContainsKey($i.Name)) {
+        $shown = $i.Name
+        if ($shown.Length -gt 100) { $shown = $shown.Substring(0, 100) }
+        [Console]::Error.WriteLine(('{0}: {1}' -f $i.Kind, $shown))
+      }
+    }
+    [Console]::Error.WriteLine('--- end ---')
+  }
 }
 finally {
   if ($null -ne $oldClip) { try { Set-Clipboard -Value $oldClip } catch {} }
