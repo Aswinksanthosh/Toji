@@ -113,6 +113,12 @@ if ($env:JARVIS_BRAIN -eq 'gemini') {
   Say ("Local brain ready: {0}." -f $model)
 }
 
+# The phone page falls back to the local model when Gemini is out of free
+# requests, so have it running whenever the phone page is on and Ollama exists.
+if ($env:JARVIS_PHONE_PASSWORD -and $env:JARVIS_BRAIN -ne 'ollama' -and (Get-Command ollama -ErrorAction SilentlyContinue)) {
+  if (-not (Test-Ollama)) { [void](Start-OllamaBrain $false) }
+}
+
 # 4. Open Chrome once Jarvis answers. Chrome specifically, because the browser
 # speech recognition Jarvis uses does not work in every browser.
 $chrome = @(

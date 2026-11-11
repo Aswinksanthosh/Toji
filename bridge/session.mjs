@@ -65,3 +65,26 @@ export function createTextSession(runQuery, options) {
     },
   }
 }
+
+/** Gemini says it is out of free requests, or too busy. */
+const OUT_OF_QUOTA = /free limit|busy right now/i
+
+/**
+ * Tries `primary`; if it fails because Gemini is out of free requests or too
+ * busy, answers with `fallback` instead and says so. Any other failure, and a
+ * failing fallback, report the original problem.
+ */
+export function withFallback(primary, fallback, note = '\n\n(Answered by the local model: Gemini is out of free requests right now.)') {
+  return async (who, text) => {
+    try {
+      return await primary(who, text)
+    } catch (err) {
+      if (!OUT_OF_QUOTA.test(String(err?.message ?? err))) throw err
+      try {
+        return (await fallback(who, text)) + note
+      } catch {
+        throw err
+      }
+    }
+  }
+}

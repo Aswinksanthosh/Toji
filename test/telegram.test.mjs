@@ -114,3 +114,25 @@ test('long answers are split under Telegram\'s limit without losing text', () =>
   assert.equal(parts.join(' '), text)
   assert.deepEqual(chunkText('short'), ['short'])
 })
+
+import { withFallback } from '../bridge/session.mjs'
+
+test('when Gemini is out of free requests the phone answers with the local model and says so', async () => {
+  const ask = withFallback(
+    async () => { throw new Error('The Gemini free limit has been reached for now. Try again later.') },
+    async (who, text) => `local: ${text}`,
+  )
+  assert.match(await ask('x', 'hi'), /^local: hi\n\n\(Answered by the local model/)
+  const busy = withFallback(async () => { throw new Error('Gemini is busy right now. Try again in a minute.') }, async () => 'local')
+  assert.match(await busy('x', 'hi'), /^local/)
+})
+
+test('other failures are not hidden by the fallback, and a broken fallback shows the original problem', async () => {
+  let fellBack = 0
+  const other = withFallback(async () => { throw new Error('The model is not running.') }, async () => (fellBack++, 'x'))
+  await assert.rejects(() => other('x', 'hi'), /not running/)
+  assert.equal(fellBack, 0)
+  const both = withFallback(async () => { throw new Error('The Gemini free limit has been reached') }, async () => { throw new Error('I cannot reach Ollama.') })
+  await assert.rejects(() => both('x', 'hi'), /free limit/)
+  assert.equal(await withFallback(async () => 'fine', async () => 'unused')('x', 'hi'), 'fine')
+})

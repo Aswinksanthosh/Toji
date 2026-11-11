@@ -26,7 +26,7 @@ import { GEMINI_DEFAULT_MODEL, createGeminiQuery } from './gemini.mjs'
 import { OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, createOllamaQuery } from './ollama.mjs'
 import { googleConnected, googlePrompt, googleServer } from './google.mjs'
 import { localPrompt, localServer } from './local.mjs'
-import { createTextSession } from './session.mjs'
+import { createTextSession, withFallback } from './session.mjs'
 import { startTelegram } from './telegram.mjs'
 import { startPhoneServer } from './phone.mjs'
 import { homedir, networkInterfaces, tmpdir } from 'node:os'
@@ -1120,7 +1120,14 @@ const TELEGRAM_TOKEN = process.env.JARVIS_TELEGRAM_TOKEN ?? ''
 const PHONE_PASSWORD = process.env.JARVIS_PHONE_PASSWORD ?? ''
 if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
   // The Claude brain cannot serve the phone, so under Claude the phone uses Gemini.
-  const PHONE_BRAIN = BRAIN === 'claude' ? (GEMINI_KEY ? 'gemini' : 'ollama') : BRAIN
+  // JARVIS_PHONE_BRAIN=ollama makes the phone always use the local model.
+  const chosenPhoneBrain = ['gemini', 'ollama'].includes(process.env.JARVIS_PHONE_BRAIN ?? '')
+    ? process.env.JARVIS_PHONE_BRAIN
+    : null
+  const PHONE_BRAIN =
+    chosenPhoneBrain === 'gemini' && !GEMINI_KEY
+      ? 'ollama'
+      : chosenPhoneBrain ?? (BRAIN === 'claude' ? (GEMINI_KEY ? 'gemini' : 'ollama') : BRAIN)
   {
     if (BRAIN === 'claude') {
       console.log(`[jarvis] phone access uses ${PHONE_BRAIN === 'gemini' ? 'Gemini' : 'your local model (Ollama)'} while Claude runs the page.`)
@@ -1131,9 +1138,9 @@ if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
      * control the laptop, but only when JARVIS_PHONE_WRITES=1 AND Jarvis itself
      * was started with writes.
      */
-    const makeAsker = (writes) => {
+    const makeAsker = (writes, brain = PHONE_BRAIN) => {
       const phoneQuery =
-        PHONE_BRAIN === 'gemini'
+        brain === 'gemini'
           ? createGeminiQuery({ apiKey: GEMINI_KEY, model: GEMINI_MODEL, allowWrites: writes })
           : createOllamaQuery({ model: OLLAMA_MODEL, url: OLLAMA_URL, allowWrites: writes })
       const win = writes && process.platform === 'win32'
@@ -1170,7 +1177,10 @@ if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
         })
       }
     }
-    const askReadOnly = makeAsker(false)
+    // When Gemini is out of free requests or busy, the phone answers with the local model.
+    const withLocalBackup = (writes) =>
+      PHONE_BRAIN === 'gemini' ? withFallback(makeAsker(writes), makeAsker(writes, 'ollama')) : makeAsker(writes)
+    const askReadOnly = withLocalBackup(false)
 
     if (TELEGRAM_TOKEN) {
       const allowed = new Set(
@@ -1193,7 +1203,7 @@ if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
       if (PHONE_PASSWORD.length < minLength) {
         console.log(`[jarvis] wifi phone page NOT started: JARVIS_PHONE_PASSWORD must be at least ${minLength} characters${phoneWrites ? ' when the phone can control the laptop' : ''}.`)
       } else {
-        const askPhonePage = phoneWrites ? makeAsker(true) : askReadOnly
+        const askPhonePage = phoneWrites ? withLocalBackup(true) : askReadOnly
         const phonePort = Number(process.env.JARVIS_PHONE_PORT ?? 8788)
         startPhoneServer({
           password: PHONE_PASSWORD,
