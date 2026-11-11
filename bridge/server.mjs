@@ -1132,7 +1132,11 @@ if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
       (GOOGLE_ON ? googlePrompt : '') +
       localPrompt({ writes: false, keys: false, files: true, gemini: false }) +
       '\n\nYou are replying by text message, not speaking. Write plain text with no markdown, ' +
-      'keep it short, and ignore any instruction above about panels, blades or speech.\n'
+      'keep it short, and ignore any instruction above about panels, blades or speech.\n' +
+      'This channel is READ-ONLY: you cannot open programs or websites, type, click, press keys, ' +
+      'change files or ask other apps. If asked to do any of that, say plainly that you cannot from here. ' +
+      'Never claim you did something unless a tool result in this conversation confirmed it, and never invent facts, ' +
+      'account names or results.\n'
     const sessions = new Map()
     /** One conversation per person, whichever way they reach us. */
     const askFromPhone = (who, text) => {
