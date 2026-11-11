@@ -28,7 +28,8 @@ import { googleConnected, googlePrompt, googleServer } from './google.mjs'
 import { localPrompt, localServer } from './local.mjs'
 import { createTextSession } from './session.mjs'
 import { startTelegram } from './telegram.mjs'
-import { homedir, tmpdir } from 'node:os'
+import { startPhoneServer } from './phone.mjs'
+import { homedir, networkInterfaces, tmpdir } from 'node:os'
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
@@ -1110,18 +1111,17 @@ const server = http.createServer((req, res) => {
 
 
 /**
- * Prompting from a phone through a private Telegram bot. Always read-only, even
- * if the page runs in writes mode: nothing sent from a phone can type, press
- * keys, or change files. Set JARVIS_TELEGRAM_TOKEN to turn it on.
+ * Prompting from a phone: through a private Telegram bot, and/or a password
+ * protected page on your home Wi-Fi. Both are always read-only, even if the page
+ * runs in writes mode: nothing sent from a phone can type, press keys, or change
+ * files. Turn them on with JARVIS_TELEGRAM_TOKEN and JARVIS_PHONE_PASSWORD.
  */
 const TELEGRAM_TOKEN = process.env.JARVIS_TELEGRAM_TOKEN ?? ''
-if (TELEGRAM_TOKEN) {
+const PHONE_PASSWORD = process.env.JARVIS_PHONE_PASSWORD ?? ''
+if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
   if (BRAIN === 'claude') {
-    console.log('[jarvis] telegram works with the gemini and ollama brains, not claude. Not started.')
+    console.log('[jarvis] phone access (telegram, wifi page) works with the gemini and ollama brains, not claude. Not started.')
   } else {
-    const allowed = new Set(
-      (process.env.JARVIS_TELEGRAM_ALLOWED ?? '').split(',').map((s) => s.trim()).filter(Boolean),
-    )
     const phoneQuery =
       BRAIN === 'gemini'
         ? createGeminiQuery({ apiKey: GEMINI_KEY, model: GEMINI_MODEL, allowWrites: false })
@@ -1134,6 +1134,7 @@ if (TELEGRAM_TOKEN) {
       '\n\nYou are replying by text message, not speaking. Write plain text with no markdown, ' +
       'keep it short, and ignore any instruction above about panels, blades or speech.\n'
     const sessions = new Map()
+    /** One conversation per person, whichever way they reach us. */
     const askFromPhone = (who, text) => {
       let session = sessions.get(who)
       if (!session) {
@@ -1153,12 +1154,41 @@ if (TELEGRAM_TOKEN) {
         return answer
       })
     }
-    startTelegram({ token: TELEGRAM_TOKEN, allowed, ask: askFromPhone })
-    console.log(
-      allowed.size
-        ? `[jarvis] telegram bot on, answering ${allowed.size} account(s), read-only`
-        : '[jarvis] telegram bot on, but nobody is allowed yet. Message the bot /start to learn your ID.',
-    )
+
+    if (TELEGRAM_TOKEN) {
+      const allowed = new Set(
+        (process.env.JARVIS_TELEGRAM_ALLOWED ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+      )
+      startTelegram({ token: TELEGRAM_TOKEN, allowed, ask: (who, text) => askFromPhone(`telegram:${who}`, text) })
+      console.log(
+        allowed.size
+          ? `[jarvis] telegram bot on, answering ${allowed.size} account(s), read-only`
+          : '[jarvis] telegram bot on, but nobody is allowed yet. Message the bot /start to learn your ID.',
+      )
+    }
+
+    if (PHONE_PASSWORD) {
+      if (PHONE_PASSWORD.length < 8) {
+        console.log('[jarvis] wifi phone page NOT started: JARVIS_PHONE_PASSWORD must be at least 8 characters.')
+      } else {
+        const phonePort = Number(process.env.JARVIS_PHONE_PORT ?? 8788)
+        startPhoneServer({
+          password: PHONE_PASSWORD,
+          port: phonePort,
+          host: process.env.JARVIS_PHONE_HOST ?? '0.0.0.0',
+          allowPublic: process.env.JARVIS_PHONE_ALLOW_PUBLIC === '1',
+          ask: (text) => askFromPhone('wifi', text),
+        })
+          .then(({ port }) => {
+            const addresses = Object.values(networkInterfaces())
+              .flat()
+              .filter((a) => a && a.family === 'IPv4' && !a.internal)
+              .map((a) => `http://${a.address}:${port}`)
+            console.log(`[jarvis] wifi phone page on, read-only, password protected. On your phone, open: ${addresses.join(' or ') || `port ${port}`}`)
+          })
+          .catch((err) => console.log(`[jarvis] wifi phone page could not start: ${err.message}`))
+      }
+    }
   }
 }
 
