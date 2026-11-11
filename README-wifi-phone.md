@@ -41,3 +41,9 @@ apply as on the laptop: typing and clicking are refused while a terminal has foc
 and apps open from your list only. The page shows a warning banner while this is on.
 A password of at least 12 characters is required. Telegram always stays read-only.
 Anyone with your phone and password could do all of this, so lock your phone.
+
+## Which brain answers the phone
+`JARVIS_PHONE_BRAIN` = `claude`, `gemini` or `ollama`. The Claude launcher sets it to `claude`
+(and `JARVIS_NO_GEMINI=1`, so nothing there touches Gemini). The phone's Claude gets no
+built-in shell or file tools, only the Jarvis tools, each checked against the same policy.
+`JARVIS_DISABLE=geminiapp` hides the "ask the Gemini app" tool.

@@ -394,7 +394,7 @@ export function localPrompt({ writes, keys, files, gemini, desktop }) {
   return lines.join('\n') + '\n'
 }
 
-export function localServer({ workspace, roots, allowWrites = false, files = true, platform = process.platform, press = runKeys, ask = runAsk, desktop = runDesktop, launch = runLaunch, appsFile, fetchFn = globalThis.fetch }) {
+export function localServer({ workspace, roots, allowWrites = false, files = true, platform = process.platform, press = runKeys, ask = runAsk, desktop = runDesktop, launch = runLaunch, appsFile, fetchFn = globalThis.fetch, geminiApp = true }) {
   const ctx = { workspace, roots }
   const tools = []
 
@@ -483,7 +483,7 @@ export function localServer({ workspace, roots, allowWrites = false, files = tru
       tool('lock_screen', 'Lock the computer.', {}, act('lock', null, () => 'Locking.')),
       tool('sleep_computer', 'Put the computer to sleep.', {}, act('sleep', null, () => 'Going to sleep.')),
     )
-    tools.push(
+    if (geminiApp) tools.push(
       tool('ask_gemini', "Ask the Gemini app one question, for example about the user's calendar or mail, and get its answer. Slow: up to a minute.",
         { question: z.string().min(1).max(QUESTION_MAX) },
         async ({ question }) => {

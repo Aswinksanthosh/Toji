@@ -353,6 +353,7 @@ const LOCAL_SERVER = () =>
     roots: TOOL_ROOTS,
     allowWrites: ALLOW_WRITES,
     files: BRAIN !== 'claude',
+    geminiApp: !DISABLED.has('geminiapp'),
   })
 const LOCAL_ON = !DISABLED.has('local') && (BRAIN !== 'claude' || (ALLOW_WRITES && process.platform === 'win32'))
 console.log(
@@ -1121,7 +1122,7 @@ const PHONE_PASSWORD = process.env.JARVIS_PHONE_PASSWORD ?? ''
 if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
   // The Claude brain cannot serve the phone, so under Claude the phone uses Gemini.
   // JARVIS_PHONE_BRAIN=ollama makes the phone always use the local model.
-  const chosenPhoneBrain = ['gemini', 'ollama'].includes(process.env.JARVIS_PHONE_BRAIN ?? '')
+  const chosenPhoneBrain = ['gemini', 'ollama', 'claude'].includes(process.env.JARVIS_PHONE_BRAIN ?? '')
     ? process.env.JARVIS_PHONE_BRAIN
     : null
   const PHONE_BRAIN =
@@ -1129,8 +1130,44 @@ if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
       ? 'ollama'
       : chosenPhoneBrain ?? (BRAIN === 'claude' ? (GEMINI_KEY ? 'gemini' : 'ollama') : BRAIN)
   {
-    if (BRAIN === 'claude') {
-      console.log(`[jarvis] phone access uses ${PHONE_BRAIN === 'gemini' ? 'Gemini' : 'your local model (Ollama)'} while Claude runs the page.`)
+    if (PHONE_BRAIN !== BRAIN) {
+      console.log(`[jarvis] phone access uses ${{ gemini: 'Gemini', ollama: 'your local model (Ollama)', claude: 'Claude' }[PHONE_BRAIN]} while ${BRAIN} runs the page.`)
+    }
+    /**
+     * Claude for the phone. Unlike the main page it gets NO built-in tools (no
+     * shell, no file tools of its own): only the Jarvis tools, each one checked
+     * against the same permission policy. So even with phone control switched
+     * on, a phone request can never run an arbitrary command.
+     */
+    const claudePhoneQuery = (writes) => ({ prompt, options }) => {
+      const policy = async (input) => {
+        const verdict = checkToolUse(input.tool_name, input.tool_input, { allowWrites: writes, cwd: WORKSPACE, roots: TOOL_ROOTS })
+        if (verdict.allow) return {}
+        console.log(`[jarvis] phone tool ${input.tool_name} -> deny (policy)`)
+        return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: verdict.reason } }
+      }
+      return query({
+        prompt,
+        options: {
+          mcpServers: options.mcpServers,
+          systemPrompt: options.systemPrompt,
+          cwd: WORKSPACE,
+          tools: [],
+          hooks: { PreToolUse: [{ hooks: [policy] }] },
+          settingSources: [],
+          model: MODEL,
+          effort: EFFORT,
+          maxTurns: 12,
+          persistSession: false,
+          ...(process.env.JARVIS_CLAUDE_EXECUTABLE ? { pathToClaudeCodeExecutable: process.env.JARVIS_CLAUDE_EXECUTABLE } : {}),
+          permissionMode: 'default',
+          includePartialMessages: true,
+          canUseTool: async (toolName) =>
+            decideTool(toolName, writes)
+              ? { behavior: 'allow' }
+              : { behavior: 'deny', message: 'Blocked: that is not allowed from the phone. Tell the user it is unavailable.' },
+        },
+      })
     }
     /**
      * One brain and set of conversations per trust level. Telegram only knows who
@@ -1140,15 +1177,17 @@ if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
      */
     const makeAsker = (writes, brain = PHONE_BRAIN) => {
       const phoneQuery =
-        brain === 'gemini'
-          ? createGeminiQuery({ apiKey: GEMINI_KEY, model: GEMINI_MODEL, allowWrites: writes })
-          : createOllamaQuery({ model: OLLAMA_MODEL, url: OLLAMA_URL, allowWrites: writes })
+        brain === 'claude'
+          ? claudePhoneQuery(writes)
+          : brain === 'gemini'
+            ? createGeminiQuery({ apiKey: GEMINI_KEY, model: GEMINI_MODEL, allowWrites: writes })
+            : createOllamaQuery({ model: OLLAMA_MODEL, url: OLLAMA_URL, allowWrites: writes })
       const win = writes && process.platform === 'win32'
       const phonePrompt =
         PROMPT_CORE +
         (DISABLED.has('memory') ? '' : memoryPrompt(MEMORY_DIR)) +
         (GOOGLE_ON ? googlePrompt : '') +
-        localPrompt({ writes, keys: win, files: true, gemini: win, desktop: win }) +
+        localPrompt({ writes, keys: win, files: true, gemini: win && brain !== 'claude' && !DISABLED.has('geminiapp'), desktop: win }) +
         '\n\nYou are replying by text message, not speaking. Write plain text with no markdown, ' +
         'keep it short, and ignore any instruction above about panels, blades or speech.\n' +
         (writes
@@ -1165,7 +1204,7 @@ if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
             mcpServers: {
               ...(DISABLED.has('memory') ? {} : { jarvis_memory: memoryServer(MEMORY_DIR) }),
               ...(GOOGLE_ON ? { jarvis_google: googleServer() } : {}),
-              jarvis_local: localServer({ workspace: WORKSPACE, roots: TOOL_ROOTS, allowWrites: writes, files: true }),
+              jarvis_local: localServer({ workspace: WORKSPACE, roots: TOOL_ROOTS, allowWrites: writes, files: true, geminiApp: brain !== 'claude' && !DISABLED.has('geminiapp') }),
             },
           })
           sessions.set(who, session)
@@ -1537,7 +1576,7 @@ wss.on('connection', (socket) => {
         (DISABLED.has('memory') ? '' : memoryPrompt(MEMORY_DIR)) +
         (GOOGLE_ON ? googlePrompt : '') +
         (LOCAL_ON
-          ? localPrompt({ writes: ALLOW_WRITES, keys: ALLOW_WRITES && process.platform === 'win32', files: BRAIN !== 'claude', gemini: ALLOW_WRITES && process.platform === 'win32', desktop: ALLOW_WRITES && process.platform === 'win32' })
+          ? localPrompt({ writes: ALLOW_WRITES, keys: ALLOW_WRITES && process.platform === 'win32', files: BRAIN !== 'claude', gemini: ALLOW_WRITES && process.platform === 'win32' && !DISABLED.has('geminiapp'), desktop: ALLOW_WRITES && process.platform === 'win32' })
           : ''),
       // Run from JARVIS's own workspace rather than the home directory. MCP
       // discovery does not depend on it — settingSources is empty and the

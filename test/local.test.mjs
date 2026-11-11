@@ -303,3 +303,9 @@ test('the video id is still found when the keys inside videoRenderer are in a di
   const shortsOnly = '..."reelItemRenderer":{"videoId":"SHORTSSHORT"}...'
   assert.equal(await youtubeTarget('x', async () => ({ ok: true, text: async () => shortsOnly })), 'https://www.youtube.com/results?search_query=x')
 })
+
+test('the Gemini-app tool can be switched off, and the other desktop tools stay', async () => {
+  const names = await toolNames(localServer({ ...ctx(), allowWrites: true, platform: 'win32', geminiApp: false }))
+  assert.ok(!names.includes('ask_gemini'))
+  assert.ok(names.includes('open_app') && names.includes('type_text') && names.includes('play_youtube'))
+})

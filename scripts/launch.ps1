@@ -29,6 +29,7 @@ function Fail($text) {
 # saved values here, so a double-click behaves the same as a fresh PowerShell.
 $saved = [Environment]::GetEnvironmentVariables('User')
 foreach ($name in $saved.Keys) {
+  if ($env:JARVIS_NO_GEMINI -eq '1' -and $name -match '^(GEMINI_API_KEY|GOOGLE_API_KEY)$') { continue }
   if ($name -match '^(JARVIS_|GEMINI_API_KEY$|GOOGLE_API_KEY$)' -and -not [Environment]::GetEnvironmentVariable($name, 'Process')) {
     [Environment]::SetEnvironmentVariable($name, [string]$saved[$name], 'Process')
   }
@@ -103,7 +104,7 @@ if ($env:JARVIS_BRAIN -eq 'gemini') {
   Say 'Using the Claude brain (online, uses your Claude subscription).'
   # The phone page cannot use Claude. It uses Gemini if you have a key, otherwise
   # your free local model, which is started here.
-  if ($env:JARVIS_PHONE_PASSWORD -and -not $hasGeminiKey) {
+  if ($env:JARVIS_PHONE_PASSWORD -and -not $hasGeminiKey -and $env:JARVIS_PHONE_BRAIN -ne 'claude') {
     Say 'No Gemini key, so the phone page will use your local model.'
     [void](Start-OllamaBrain $false)
   }
@@ -115,7 +116,7 @@ if ($env:JARVIS_BRAIN -eq 'gemini') {
 
 # The phone page falls back to the local model when Gemini is out of free
 # requests, so have it running whenever the phone page is on and Ollama exists.
-if ($env:JARVIS_PHONE_PASSWORD -and $env:JARVIS_BRAIN -ne 'ollama' -and (Get-Command ollama -ErrorAction SilentlyContinue)) {
+if ($env:JARVIS_PHONE_PASSWORD -and $env:JARVIS_BRAIN -ne 'ollama' -and $env:JARVIS_PHONE_BRAIN -ne 'claude' -and (Get-Command ollama -ErrorAction SilentlyContinue)) {
   if (-not (Test-Ollama)) { [void](Start-OllamaBrain $false) }
 }
 
