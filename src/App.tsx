@@ -13,7 +13,7 @@ import * as hands from './lib/hands'
 import { listenForClap } from './lib/clap'
 import * as camera from './lib/camera'
 import * as kokoro from './lib/kokoro'
-import { TTS_ENGINE } from './config'
+import { ANIMATIONS, SKIP_INTRO, TTS_ENGINE } from './config'
 import { forTool, attention } from './lib/fillers'
 import {
   ask,
@@ -352,11 +352,11 @@ export default function App() {
     // Must happen inside the click handler — browsers won't start an
     // AudioContext or speech synthesis without a user gesture.
     await sfx.unlockAudio()
-    sfx.play('boot')
+    if (!SKIP_INTRO) sfx.play('boot')
     // The score. Must be started from inside this click handler for the same
     // reason as the rest of the audio.
     music.enable()
-    music.playBoot()
+    if (!SKIP_INTRO) music.playBoot()
     music.startAmbient()
 
     s.setPhase('boot')
@@ -491,7 +491,7 @@ export default function App() {
     // status bar, rings, suit schematic, reactor power-up — before the live
     // interface takes over. Kept a touch under the boot cue so the music is
     // still rising as the reactor lands.
-    await new Promise((r) => setTimeout(r, 9200)) // boot sequence
+    await new Promise((r) => setTimeout(r, SKIP_INTRO ? 0 : 9200)) // boot sequence
     await warming
     store.getState().setConnected(connectedLabels())
 
@@ -708,7 +708,7 @@ export default function App() {
 
   return (
     <>
-      <Scene />
+      {ANIMATIONS && <Scene />}
       <Hud />
       <Boot />
       <Diagnostics />

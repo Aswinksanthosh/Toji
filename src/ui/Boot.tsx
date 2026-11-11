@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useStore } from '../store'
+import { SKIP_INTRO } from '../config'
 
 /**
  * The start-up sequence, rebuilt to the Iron Man boot it is quoting.
@@ -58,7 +59,7 @@ export function Boot() {
     return () => clearInterval(id)
   }, [phase])
 
-  if (phase !== 'boot') return null
+  if (phase !== 'boot' || SKIP_INTRO) return null
 
   const stage: Stage =
     t >= T.reactor ? 'reactor' : t >= T.suit ? 'suit' : t >= T.rings ? 'rings' : 'bar'

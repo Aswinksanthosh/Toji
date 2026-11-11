@@ -92,6 +92,19 @@ export const USE_ELEVENLABS = flag(
 )
 
 /**
+ * Skip the start-up sequence: no boot screen, no boot sound, and none of the
+ * nine-second wait before he is ready. Set VITE_SKIP_INTRO=1 in .env.local.
+ */
+export const SKIP_INTRO = flag('VITE_SKIP_INTRO', import.meta.env.VITE_SKIP_INTRO, false)
+
+/**
+ * The 3D reactor and its motion. Set VITE_ANIMATIONS=0 in .env.local to turn it
+ * off. The text interface still works, and WebGL is never started, which also
+ * sidesteps graphics-driver crashes.
+ */
+export const ANIMATIONS = flag('VITE_ANIMATIONS', import.meta.env.VITE_ANIMATIONS, true)
+
+/**
  * Speech engine.
  *
  *   'system' — the browser's own speechSynthesis. Starts on the next frame,
