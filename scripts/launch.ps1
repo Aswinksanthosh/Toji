@@ -63,8 +63,16 @@ function Test-Ollama {
   }
 }
 
-if ($env:JARVIS_BRAIN -eq 'gemini' -or $env:JARVIS_BRAIN -eq 'claude') {
-  Say ("Using the {0} brain." -f $env:JARVIS_BRAIN)
+if ($env:JARVIS_BRAIN -eq 'gemini') {
+  if (-not $env:GEMINI_API_KEY -and -not $env:GOOGLE_API_KEY) {
+    Fail 'No Gemini key found. Create a free one at https://aistudio.google.com and save it as GEMINI_API_KEY.'
+  }
+  Say 'Using the Gemini brain (online).'
+} elseif ($env:JARVIS_BRAIN -eq 'claude') {
+  if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
+    Fail 'The Claude brain needs Claude Code installed and logged in: npm install -g @anthropic-ai/claude-code, then run claude once.'
+  }
+  Say 'Using the Claude brain (online, uses your Claude subscription).'
 } else {
   $env:JARVIS_BRAIN = 'ollama'
   if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
@@ -108,6 +116,8 @@ $opener = Start-Job -ArgumentList $url, $chrome -ScriptBlock {
 }
 
 # 5. Run Jarvis, in the foreground. Closing this window stops everything.
+# The graphics cap only matters for the local brain; the online brains use no GPU.
+if ($env:JARVIS_BRAIN -ne 'ollama') { $useCap = $false }
 Say 'Starting Jarvis. Press Ctrl-C in this window to stop.'
 try {
   if ($useCap) {
