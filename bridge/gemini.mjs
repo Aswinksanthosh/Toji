@@ -35,7 +35,7 @@ const REFUSED =
   'unavailable until they enable write access on the machine.'
 
 /** Gemini rejects some JSON Schema keywords the MCP SDK emits. */
-function cleanSchema(schema) {
+export function cleanSchema(schema) {
   if (Array.isArray(schema)) return schema.map(cleanSchema)
   if (schema && typeof schema === 'object') {
     const out = {}
@@ -52,7 +52,7 @@ function cleanSchema(schema) {
 const safeName = (s) => s.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, MAX_TOOL_NAME)
 
 /** Connects each in-process server and returns what Gemini can call. */
-async function connectTools(mcpServers) {
+export async function connectTools(mcpServers) {
   const clients = []
   const byName = new Map()
   const declarations = []
@@ -107,7 +107,7 @@ function plainReason(text) {
 }
 
 /** The bridge sends the Claude SDK's message shape; a plain string is accepted too. */
-function userText(msg) {
+export function userText(msg) {
   if (typeof msg === 'string') return msg
   const content = msg?.message?.content
   if (typeof content === 'string') return content
@@ -118,7 +118,7 @@ function userText(msg) {
 }
 
 /** Turns an MCP tool result into text for Gemini, plus any images to attach. */
-function flattenResult(result) {
+export function flattenResult(result) {
   const text = []
   const images = []
   for (const block of result?.content ?? []) {
@@ -128,6 +128,24 @@ function flattenResult(result) {
     }
   }
   return { text: text.join('\n') || (result?.isError ? 'The tool failed.' : 'Done.'), images }
+}
+
+/**
+ * Runs one tool call the model asked for, behind the permission gate.
+ * Shared by every brain, so read-only mode means the same thing for all of them.
+ */
+export async function executeTool(tools, name, args, allowWrites) {
+  const entry = tools.byName.get(name)
+  const full = entry?.full ?? `mcp__unknown__${name}`
+  if (!entry) return { full, output: 'That tool does not exist.', isError: true, images: [] }
+  if (!decideTool(full, allowWrites)) return { full, output: REFUSED, isError: true, images: [] }
+  try {
+    const result = await entry.client.callTool({ name: entry.tool, arguments: args ?? {} })
+    const flat = flattenResult(result)
+    return { full, output: flat.text, isError: result?.isError === true, images: flat.images }
+  } catch (err) {
+    return { full, output: `The tool failed: ${err?.message ?? err}`, isError: true, images: [] }
+  }
 }
 
 /**
@@ -229,36 +247,13 @@ export function createGeminiQuery({ apiKey, model = GEMINI_DEFAULT_MODEL, allowW
             const replies = []
             for (const [i, call] of calls.entries()) {
               const id = `g${Date.now().toString(36)}${step}${i}`
-              const entry = tools.byName.get(call.name)
-              const full = entry?.full ?? `mcp__unknown__${call.name}`
+              const full = tools.byName.get(call.name)?.full ?? `mcp__unknown__${call.name}`
               yield {
                 type: 'stream_event',
                 event: { type: 'content_block_start', content_block: { type: 'tool_use', id, name: full } },
               }
-
-              let output
-              let isError = false
-              if (!entry) {
-                output = 'That tool does not exist.'
-                isError = true
-              } else if (!decideTool(full, allowWrites)) {
-                output = REFUSED
-                isError = true
-              } else {
-                try {
-                  const result = await entry.client.callTool({
-                    name: entry.tool,
-                    arguments: call.args ?? {},
-                  })
-                  const flat = flattenResult(result)
-                  output = flat.text
-                  isError = result?.isError === true
-                  replies.push(...flat.images)
-                } catch (err) {
-                  output = `The tool failed: ${err?.message ?? err}`
-                  isError = true
-                }
-              }
+              const { output, isError, images } = await executeTool(tools, call.name, call.args, allowWrites)
+              replies.push(...images)
               replies.unshift({
                 functionResponse: {
                   name: call.name,

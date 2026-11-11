@@ -23,6 +23,7 @@ import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
 import { logTurn, memoryPrompt, memoryServer } from './memory.mjs'
 import { GEMINI_DEFAULT_MODEL, createGeminiQuery } from './gemini.mjs'
+import { OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, createOllamaQuery } from './ollama.mjs'
 import { googleConnected, googlePrompt, googleServer } from './google.mjs'
 import { localPrompt, localServer } from './local.mjs'
 import { homedir, tmpdir } from 'node:os'
@@ -206,8 +207,8 @@ const EFFORT = process.env.JARVIS_EFFORT ?? 'high'
  */
 const GEMINI_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || ''
 const BRAIN = (process.env.JARVIS_BRAIN ?? (GEMINI_KEY ? 'gemini' : 'claude')).toLowerCase()
-if (BRAIN !== 'gemini' && BRAIN !== 'claude') {
-  console.error(`[jarvis] JARVIS_BRAIN must be "gemini" or "claude", not "${BRAIN}".`)
+if (BRAIN !== 'gemini' && BRAIN !== 'claude' && BRAIN !== 'ollama') {
+  console.error(`[jarvis] JARVIS_BRAIN must be "gemini", "claude" or "ollama", not "${BRAIN}".`)
   process.exit(1)
 }
 if (BRAIN === 'gemini' && !GEMINI_KEY) {
@@ -218,10 +219,36 @@ if (BRAIN === 'gemini' && !GEMINI_KEY) {
   process.exit(1)
 }
 const GEMINI_MODEL = process.env.JARVIS_GEMINI_MODEL ?? GEMINI_DEFAULT_MODEL
+const OLLAMA_MODEL = process.env.JARVIS_OLLAMA_MODEL ?? OLLAMA_DEFAULT_MODEL
+const OLLAMA_URL = process.env.JARVIS_OLLAMA_URL ?? OLLAMA_DEFAULT_URL
 const runQuery =
   BRAIN === 'gemini'
     ? createGeminiQuery({ apiKey: GEMINI_KEY, model: GEMINI_MODEL, allowWrites: ALLOW_WRITES })
-    : query
+    : BRAIN === 'ollama'
+      ? createOllamaQuery({ model: OLLAMA_MODEL, url: OLLAMA_URL, allowWrites: ALLOW_WRITES })
+      : query
+
+// A small local model copes badly with dozens of tools. Unless told otherwise,
+// leave out the heavy ones (the interface retinting, the camera, the browser).
+if (BRAIN === 'ollama' && process.env.JARVIS_DISABLE === undefined) {
+  for (const name of ['interface', 'camera', 'browser']) DISABLED.add(name)
+}
+if (BRAIN === 'ollama') {
+  void fetch(`${OLLAMA_URL}/api/tags`)
+    .then((r) => r.json())
+    .then((j) => {
+      const have = (j.models ?? []).map((m) => m.name)
+      const ok = have.some((n) => n === OLLAMA_MODEL || n.startsWith(`${OLLAMA_MODEL}:`))
+      console.log(
+        ok
+          ? `[jarvis] ollama ready with ${OLLAMA_MODEL}`
+          : `[jarvis] ollama is running but "${OLLAMA_MODEL}" is not installed. Run: ollama pull ${OLLAMA_MODEL}`,
+      )
+    })
+    .catch(() =>
+      console.log(`[jarvis] cannot reach Ollama at ${OLLAMA_URL}. Install it from ollama.com and start it.`),
+    )
+}
 
 /**
  * Every MCP server Claude Code has configured, read out of its own config.
@@ -322,9 +349,9 @@ const LOCAL_SERVER = () =>
     workspace: WORKSPACE,
     roots: TOOL_ROOTS,
     allowWrites: ALLOW_WRITES,
-    files: BRAIN === 'gemini',
+    files: BRAIN !== 'claude',
   })
-const LOCAL_ON = !DISABLED.has('local') && (BRAIN === 'gemini' || (ALLOW_WRITES && process.platform === 'win32'))
+const LOCAL_ON = !DISABLED.has('local') && (BRAIN !== 'claude' || (ALLOW_WRITES && process.platform === 'win32'))
 console.log(
   GOOGLE_ON
     ? '[jarvis] google calendar and mail connected (read only)'
@@ -1133,7 +1160,9 @@ console.log(
 console.log(
   BRAIN === 'gemini'
     ? `[jarvis] brain gemini · model ${GEMINI_MODEL}`
-    : `[jarvis] model ${MODEL} · effort ${EFFORT}`,
+    : BRAIN === 'ollama'
+      ? `[jarvis] brain ollama (local) · model ${OLLAMA_MODEL}`
+      : `[jarvis] model ${MODEL} · effort ${EFFORT}`,
 )
 console.log(
   `[jarvis] MCP servers from config: ${Object.keys(MCP_SERVERS).join(', ') || 'none'}` +
@@ -1387,7 +1416,7 @@ wss.on('connection', (socket) => {
         (DISABLED.has('memory') ? '' : memoryPrompt(MEMORY_DIR)) +
         (GOOGLE_ON ? googlePrompt : '') +
         (LOCAL_ON
-          ? localPrompt({ writes: ALLOW_WRITES, keys: ALLOW_WRITES && process.platform === 'win32', files: BRAIN === 'gemini', gemini: ALLOW_WRITES && process.platform === 'win32' })
+          ? localPrompt({ writes: ALLOW_WRITES, keys: ALLOW_WRITES && process.platform === 'win32', files: BRAIN !== 'claude', gemini: ALLOW_WRITES && process.platform === 'win32' })
           : ''),
       // Run from JARVIS's own workspace rather than the home directory. MCP
       // discovery does not depend on it — settingSources is empty and the
