@@ -26,6 +26,8 @@ import { GEMINI_DEFAULT_MODEL, createGeminiQuery } from './gemini.mjs'
 import { OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, createOllamaQuery } from './ollama.mjs'
 import { googleConnected, googlePrompt, googleServer } from './google.mjs'
 import { localPrompt, localServer } from './local.mjs'
+import { createTextSession } from './session.mjs'
+import { startTelegram } from './telegram.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -1105,6 +1107,60 @@ const server = http.createServer((req, res) => {
     res.end()
   })
 })
+
+
+/**
+ * Prompting from a phone through a private Telegram bot. Always read-only, even
+ * if the page runs in writes mode: nothing sent from a phone can type, press
+ * keys, or change files. Set JARVIS_TELEGRAM_TOKEN to turn it on.
+ */
+const TELEGRAM_TOKEN = process.env.JARVIS_TELEGRAM_TOKEN ?? ''
+if (TELEGRAM_TOKEN) {
+  if (BRAIN === 'claude') {
+    console.log('[jarvis] telegram works with the gemini and ollama brains, not claude. Not started.')
+  } else {
+    const allowed = new Set(
+      (process.env.JARVIS_TELEGRAM_ALLOWED ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+    )
+    const phoneQuery =
+      BRAIN === 'gemini'
+        ? createGeminiQuery({ apiKey: GEMINI_KEY, model: GEMINI_MODEL, allowWrites: false })
+        : createOllamaQuery({ model: OLLAMA_MODEL, url: OLLAMA_URL, allowWrites: false })
+    const phonePrompt =
+      PROMPT_CORE +
+      (DISABLED.has('memory') ? '' : memoryPrompt(MEMORY_DIR)) +
+      (GOOGLE_ON ? googlePrompt : '') +
+      localPrompt({ writes: false, keys: false, files: true, gemini: false }) +
+      '\n\nYou are replying by text message, not speaking. Write plain text with no markdown, ' +
+      'keep it short, and ignore any instruction above about panels, blades or speech.\n'
+    const sessions = new Map()
+    const askFromPhone = (who, text) => {
+      let session = sessions.get(who)
+      if (!session) {
+        session = createTextSession(phoneQuery, {
+          systemPrompt: phonePrompt,
+          mcpServers: {
+            ...(DISABLED.has('memory') ? {} : { jarvis_memory: memoryServer(MEMORY_DIR) }),
+            ...(GOOGLE_ON ? { jarvis_google: googleServer() } : {}),
+            jarvis_local: localServer({ workspace: WORKSPACE, roots: TOOL_ROOTS, allowWrites: false, files: true }),
+          },
+        })
+        sessions.set(who, session)
+      }
+      if (!DISABLED.has('memory')) logTurn(MEMORY_DIR, 'user', text)
+      return session.ask(text).then((answer) => {
+        if (!DISABLED.has('memory')) logTurn(MEMORY_DIR, 'jarvis', answer)
+        return answer
+      })
+    }
+    startTelegram({ token: TELEGRAM_TOKEN, allowed, ask: askFromPhone })
+    console.log(
+      allowed.size
+        ? `[jarvis] telegram bot on, answering ${allowed.size} account(s), read-only`
+        : '[jarvis] telegram bot on, but nobody is allowed yet. Message the bot /start to learn your ID.',
+    )
+  }
+}
 
 const wss = new WebSocketServer({
   server,
