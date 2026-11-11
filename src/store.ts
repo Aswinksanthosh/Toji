@@ -225,6 +225,8 @@ type State = {
   /** Whether the camera is on and hands are being tracked. Store-backed rather
    *  than read off the tracker, because the indicator has to re-render. */
   gestures: boolean
+  /** No sound at all: no speech, effects or music. The text still shows. */
+  silent: boolean
   /** Set while JARVIS is taking a look, to whatever he said he was looking for.
    *  null when he is not. The camera light is on either way — this says why. */
   looking: string | null
@@ -243,6 +245,7 @@ type State = {
 
   setVoice: (v: string) => void
   setGestures: (on: boolean) => void
+  setSilent: (on: boolean) => void
   setLooking: (why: string | null) => void
   setBootNote: (n: string) => void
   pushPanel: (p: Panel) => void
@@ -280,6 +283,13 @@ export const useStore = create<State>((set) => ({
   connected: [],
   voice: '',
   gestures: false,
+  silent: (() => {
+    try {
+      return localStorage.getItem('jarvis.silent') === '1'
+    } catch {
+      return false
+    }
+  })(),
   looking: null,
   panels: [],
   blades: [],
@@ -290,6 +300,14 @@ export const useStore = create<State>((set) => ({
 
   setVoice: (voice) => set({ voice }),
   setGestures: (gestures) => set({ gestures }),
+  setSilent: (silent) => {
+    try {
+      localStorage.setItem('jarvis.silent', silent ? '1' : '0')
+    } catch {
+      /* a blocked store just means the choice is not remembered */
+    }
+    set({ silent })
+  },
   setLooking: (looking) => set({ looking }),
   setBootNote: (bootNote) => set({ bootNote }),
   // Three is as many as fits around the reactor without crowding it. Sticky

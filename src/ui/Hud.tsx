@@ -146,6 +146,69 @@ function DecodeText({ text }: { text: string }) {
 
 /* --------------------------------------------------------------------- hud */
 
+/**
+ * A text box to talk to him without speaking, plus the silent switch.
+ * Typed messages go through the same path as speech. Press / to jump to it.
+ */
+function TypeBar() {
+  const phase = useStore((s) => s.phase)
+  const silent = useStore((s) => s.silent)
+  const setSilent = useStore((s) => s.setSilent)
+  const [text, setText] = useState('')
+  const input = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        input.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  if (phase === 'offline' || phase === 'boot') return null
+
+  return (
+    <form
+      className="typebar"
+      onSubmit={(e) => {
+        e.preventDefault()
+        const t = text.trim()
+        if (!t) return
+        window.dispatchEvent(new CustomEvent('jarvis:type', { detail: t }))
+        setText('')
+      }}
+    >
+      <input
+        ref={input}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') (e.target as HTMLInputElement).blur()
+        }}
+        placeholder="type to Jarvis…  ( / )"
+        maxLength={500}
+        autoComplete="off"
+        spellCheck={false}
+        aria-label="Type a message to Jarvis"
+      />
+      <button
+        type="button"
+        className={silent ? 'silent on' : 'silent'}
+        aria-pressed={silent}
+        onClick={() => setSilent(!silent)}
+        title="Silent mode (M)"
+      >
+        {silent ? 'SILENT' : 'SOUND'}
+      </button>
+    </form>
+  )
+}
+
 export function Hud() {
   const phase = useStore((s) => s.phase)
   const caption = useStore((s) => s.caption)
@@ -310,9 +373,11 @@ export function Hud() {
 
       {error && <div className="error">{error}</div>}
 
+      <TypeBar />
+
       <footer className="hud-bottom">
         <span className="hint">
-          say <b>“hey jarvis”</b> · <kbd>Space</kbd> to talk · <kbd>G</kbd> hands · <kbd>F</kbd> full screen
+          say <b>“hey jarvis”</b> · <kbd>Space</kbd> to talk · <kbd>/</kbd> type · <kbd>M</kbd> silent · <kbd>G</kbd> hands · <kbd>F</kbd> full screen
           {voice && (
             <>
               {' · '}

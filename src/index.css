@@ -1898,3 +1898,50 @@ kbd {
   transform: scaleX(-1);
   background: #000;
 }
+
+/* The type-to-Jarvis box and the silent switch. */
+.typebar {
+  position: fixed;
+  left: 50%;
+  bottom: 128px;
+  transform: translateX(-50%);
+  width: min(560px, 86vw);
+  display: flex;
+  gap: 8px;
+  z-index: 30;
+  pointer-events: auto;
+}
+.typebar input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 14px;
+  background: rgba(2, 12, 20, 0.78);
+  border: 1px solid rgba(80, 200, 230, 0.35);
+  border-radius: 6px;
+  color: #bfefff;
+  font: inherit;
+  letter-spacing: 0.03em;
+  outline: none;
+}
+.typebar input::placeholder {
+  color: rgba(150, 210, 230, 0.45);
+}
+.typebar input:focus {
+  border-color: rgba(120, 230, 255, 0.85);
+  box-shadow: 0 0 14px rgba(60, 200, 230, 0.25);
+}
+.typebar .silent {
+  padding: 0 14px;
+  background: rgba(2, 12, 20, 0.78);
+  border: 1px solid rgba(80, 200, 230, 0.35);
+  border-radius: 6px;
+  color: rgba(150, 210, 230, 0.8);
+  font: inherit;
+  font-size: 0.72em;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+}
+.typebar .silent.on {
+  color: #ffd27a;
+  border-color: rgba(255, 190, 90, 0.7);
+}

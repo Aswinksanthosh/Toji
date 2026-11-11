@@ -6,7 +6,7 @@ import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
 import { useStore } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
-import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
+import { createSpeaker, cycleVoice, currentVoiceName, setMuted } from './lib/tts'
 import * as sfx from './lib/sfx'
 import * as music from './lib/music'
 import * as hands from './lib/hands'
@@ -308,6 +308,16 @@ export default function App() {
     void respond(said)
   }
 
+  /** A message typed in the box, handled exactly like something said out loud. */
+  const onTyped = (raw: string) => {
+    const phase = store.getState().phase
+    if (phase === 'offline' || phase === 'boot') return
+    const text = raw.trim()
+    if (!text) return
+    onSpeechStart() // stop whatever he was doing, as if someone started talking
+    void respond(text.replace(LEADING_NAME, '').trim() || text)
+  }
+
   const onPartial = (text: string) => {
     store.getState().setCaption(text)
   }
@@ -352,12 +362,12 @@ export default function App() {
     // Must happen inside the click handler — browsers won't start an
     // AudioContext or speech synthesis without a user gesture.
     await sfx.unlockAudio()
-    if (!SKIP_INTRO) sfx.play('boot')
+    if (!SKIP_INTRO && !store.getState().silent) sfx.play('boot')
     // The score. Must be started from inside this click handler for the same
     // reason as the rest of the audio.
     music.enable()
-    if (!SKIP_INTRO) music.playBoot()
-    music.startAmbient()
+    if (!SKIP_INTRO && !store.getState().silent) music.playBoot()
+    if (!store.getState().silent) music.startAmbient()
 
     s.setPhase('boot')
 
@@ -603,6 +613,14 @@ export default function App() {
         return
       }
 
+      // M switches all sound off and on: speech, effects and music. For when
+      // someone is asleep in the next room.
+      if (e.key === 'm' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        store.getState().setSilent(!store.getState().silent)
+        return
+      }
+
       // F toggles full screen. Browsers only allow this from a real key press
       // or click, so it cannot be triggered by voice.
       if (e.key === 'f' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -705,6 +723,21 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    const onType = (e: Event) => onTyped(String((e as CustomEvent).detail ?? ''))
+    window.addEventListener('jarvis:type', onType)
+    return () => window.removeEventListener('jarvis:type', onType)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const silent = useStore((s) => s.silent)
+  useEffect(() => {
+    setMuted(silent)
+    sfx.setVolume(silent ? 0 : 0.5)
+    if (silent) music.stopAll()
+    else if (store.getState().phase !== 'offline') music.startAmbient()
+  }, [silent])
 
   return (
     <>

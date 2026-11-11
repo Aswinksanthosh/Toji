@@ -335,6 +335,13 @@ type Item = {
   audio?: Promise<string | null> | null
 }
 
+/** Silent mode: nothing is spoken. The text still shows on screen. */
+let muted = false
+export function setMuted(on: boolean) {
+  muted = on
+  if (on && typeof speechSynthesis !== 'undefined') speechSynthesis.cancel()
+}
+
 export function createSpeaker(): Speaker {
   const queue: Item[] = []
   let buffer = ''
@@ -353,7 +360,7 @@ export function createSpeaker(): Speaker {
   }
 
   const enqueue = (sentence: string, priority = false) => {
-    if (cancelled) return
+    if (cancelled || muted) return
     // Shape once here so both engines get the same text — stripped markdown,
     // and the comma before "sir" that buys the beat.
     const text = shape(sentence)
