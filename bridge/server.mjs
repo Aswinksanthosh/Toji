@@ -1473,7 +1473,7 @@ wss.on('connection', (socket) => {
         (DISABLED.has('memory') ? '' : memoryPrompt(MEMORY_DIR)) +
         (GOOGLE_ON ? googlePrompt : '') +
         (LOCAL_ON
-          ? localPrompt({ writes: ALLOW_WRITES, keys: ALLOW_WRITES && process.platform === 'win32', files: BRAIN !== 'claude', gemini: ALLOW_WRITES && process.platform === 'win32' })
+          ? localPrompt({ writes: ALLOW_WRITES, keys: ALLOW_WRITES && process.platform === 'win32', files: BRAIN !== 'claude', gemini: ALLOW_WRITES && process.platform === 'win32', desktop: ALLOW_WRITES && process.platform === 'win32' })
           : ''),
       // Run from JARVIS's own workspace rather than the home directory. MCP
       // discovery does not depend on it — settingSources is empty and the

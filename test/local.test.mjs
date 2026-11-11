@@ -111,7 +111,7 @@ test('read-only mode offers no tool that changes anything', async () => {
 
 test('writes mode adds file writing, and the keyboard only on Windows', async () => {
   const c = ctx()
-  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'win32' })), ['ask_gemini', 'list_folder', 'make_folder', 'press_keys', 'read_file', 'write_file'])
+  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'win32' })), ['ask_gemini', 'click_element', 'list_clickable', 'list_folder', 'lock_screen', 'make_folder', 'open_app', 'open_url', 'press_keys', 'read_file', 'scroll', 'sleep_computer', 'type_text', 'write_file'])
   assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'linux' })), ['list_folder', 'make_folder', 'read_file', 'write_file'])
 })
 
@@ -165,4 +165,102 @@ test('ask_gemini reports a failure plainly, and is absent without writes mode or
   assert.ok(!(await toolNames(localServer({ ...c, allowWrites: false, platform: 'win32' }))).includes('ask_gemini'))
   assert.ok(!(await toolNames(localServer({ ...c, allowWrites: true, platform: 'linux' }))).includes('ask_gemini'))
   assert.equal(decideTool('mcp__jarvis_local__ask_gemini', false), false)
+})
+
+// -- hands-free desktop controls ------------------------------------------------
+
+import { knownApps, webAddress } from '../bridge/local.mjs'
+
+async function connected(opts) {
+  const c = ctx()
+  const server = localServer({ ...c, allowWrites: true, platform: 'win32', ...opts })
+  const [a, b] = InMemoryTransport.createLinkedPair()
+  await server.instance.connect(b)
+  const client = new Client({ name: 't', version: '1' })
+  await client.connect(a)
+  return client
+}
+
+test('only web addresses can be opened, never files, scripts or app links', () => {
+  assert.equal(webAddress('https://example.com/a?b=1'), 'https://example.com/a?b=1')
+  assert.equal(webAddress('http://localhost:5173'), 'http://localhost:5173/')
+  for (const bad of ['file:///C:/Windows/system32/cmd.exe', 'javascript:alert(1)', 'ms-settings:', 'calc.exe', 'C:\\Windows\\notepad.exe', '', 'not a url']) {
+    assert.equal(webAddress(bad), null, bad)
+  }
+})
+
+test('open_app launches only names from the list, and nothing the model invents', async () => {
+  const launched = []
+  const client = await connected({ launch: async (t, o) => launched.push([t, o]), appsFile: join(tmpdir(), 'no-such-apps.json') })
+  const ok = await client.callTool({ name: 'open_app', arguments: { name: 'Notepad' } })
+  assert.match(ok.content[0].text, /Opened/)
+  assert.deepEqual(launched, [['notepad.exe', undefined]])
+  const bad = await client.callTool({ name: 'open_app', arguments: { name: 'powershell -c calc' } })
+  assert.equal(bad.isError, true)
+  assert.match(bad.content[0].text, /only know these/)
+  assert.equal(launched.length, 1)
+})
+
+test('your own apps.json adds names, and cannot be used to smuggle a name in from a page', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'jarvis-apps-'))
+  const file = join(dir, 'apps.json')
+  writeFileSync(file, JSON.stringify({ Code: 'C:\\Tools\\Code.exe', bad: 5 }))
+  const apps = knownApps(file)
+  assert.equal(apps.code, 'C:\\Tools\\Code.exe')
+  assert.equal(apps.bad, undefined)
+  assert.equal(apps.notepad, 'notepad.exe')
+})
+
+test('open_url refuses anything but http and https', async () => {
+  const launched = []
+  const client = await connected({ launch: async (t, o) => launched.push([t, o]) })
+  const good = await client.callTool({ name: 'open_url', arguments: { url: 'https://youtube.com' } })
+  assert.equal(good.isError, undefined)
+  assert.deepEqual(launched, [['https://youtube.com/', { web: true }]])
+  const bad = await client.callTool({ name: 'open_url', arguments: { url: 'file:///C:/secret.txt' } })
+  assert.equal(bad.isError, true)
+  assert.equal(launched.length, 1)
+})
+
+test('typing, clicking, scrolling, locking and sleeping reach the desktop runner with clean inputs', async () => {
+  const calls = []
+  const client = await connected({ desktop: async (action, params) => (calls.push([action, params]), 'Send') })
+  await client.callTool({ name: 'type_text', arguments: { text: 'hello team', submit: true } })
+  await client.callTool({ name: 'click_element', arguments: { name: 'Send' } })
+  await client.callTool({ name: 'scroll', arguments: { direction: 'down', amount: 5 } })
+  await client.callTool({ name: 'list_clickable', arguments: {} })
+  await client.callTool({ name: 'lock_screen', arguments: {} })
+  await client.callTool({ name: 'sleep_computer', arguments: {} })
+  assert.deepEqual(calls, [
+    ['type', { text: 'hello team', submit: true }],
+    ['click', { name: 'Send' }],
+    ['scroll', { dir: 'down', amount: 5 }],
+    ['list', {}],
+    ['lock', {}],
+    ['sleep', {}],
+  ])
+})
+
+test('when a terminal has focus the refusal is spoken plainly, not a crash', async () => {
+  const client = await connected({ desktop: async () => { throw new Error('I will not type or click while a terminal window has focus.') } })
+  const r = await client.callTool({ name: 'type_text', arguments: { text: 'rm -rf /' } })
+  assert.equal(r.isError, true)
+  assert.match(r.content[0].text, /terminal/)
+})
+
+test('out-of-range scroll and over-long text are rejected before reaching the desktop', async () => {
+  const calls = []
+  const client = await connected({ desktop: async (a) => (calls.push(a), '') })
+  const tooMuch = await client.callTool({ name: 'scroll', arguments: { direction: 'down', amount: 500 } }).catch((e) => ({ isError: true, e }))
+  const tooLong = await client.callTool({ name: 'type_text', arguments: { text: 'x'.repeat(5000) } }).catch((e) => ({ isError: true, e }))
+  assert.equal(tooMuch.isError, true)
+  assert.equal(tooLong.isError, true)
+  assert.deepEqual(calls, [])
+})
+
+test('none of the desktop tools exist without writes mode', async () => {
+  const names = await toolNames(localServer({ ...ctx(), allowWrites: false, platform: 'win32' }))
+  for (const n of ['open_app', 'open_url', 'type_text', 'click_element', 'list_clickable', 'scroll', 'lock_screen', 'sleep_computer']) {
+    assert.ok(!names.includes(n), n)
+  }
 })
