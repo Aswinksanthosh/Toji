@@ -481,7 +481,7 @@ export function createSpeaker(): Speaker {
       // Deliberate, and deliberately invariant — the character's pace does not
       // change with stakes, and that steadiness is most of the effect. This
       // lands around 130 wpm, below the median for film dialogue.
-      u.rate = 1.3
+      u.rate = 1.15
       // Mid-baritone, and *not* pushed lower for gravitas. The voice is
       // clarity-weighted rather than chest-weighted; dropping it further reads
       // as a film-trailer voiceover, which is the wrong character entirely.
