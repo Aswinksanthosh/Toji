@@ -40,6 +40,7 @@ function Find-Target {
     $root = $AE::FromHandle($p.MainWindowHandle)
     $isEdit = New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
     $edits = $root.FindAll($TS::Descendants, $isEdit)
+    if ($debug) { [Console]::Error.WriteLine(('candidate: {0} "{1}" with {2} text boxes' -f $p.ProcessName, $p.MainWindowTitle, $edits.Count)) }
     foreach ($e in $edits) {
       $n = $e.Current.Name
       if ($n -notmatch 'Address|search bar' -and ($n -match 'prompt|Gemini|Ask|message' -or $edits.Count -eq 1)) {
@@ -62,12 +63,23 @@ function Snapshot($root) {
   return ,$list
 }
 
-$t = Find-Target
+# Chrome-based windows only build their accessibility tree after the first time
+# something asks for it, so the first look often finds nothing. Ask, wait, ask again.
+function Find-WithWarmup([int]$tries) {
+  for ($i = 0; $i -lt $tries; $i++) {
+    $found = Find-Target
+    if ($found) { return $found }
+    Start-Sleep -Milliseconds 1500
+  }
+  return $null
+}
+
+$t = Find-WithWarmup 5
 if (-not $t) {
   # The app may be hidden: its own shortcut (win+alt+space) brings up the overlay.
   Tap @(0x5B, 0x12) 0x20
   Start-Sleep -Seconds 2
-  $t = Find-Target
+  $t = Find-WithWarmup 4
 }
 if (-not $t) { [Console]::Error.WriteLine('no gemini window'); exit 3 }
 
