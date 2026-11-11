@@ -97,6 +97,9 @@ function plainReason(text) {
   if (/NOT_FOUND|is not found|\b404\b/i.test(text)) {
     return 'That Gemini model was not found. Run npm run gemini:models to see the available ones.'
   }
+  if (isOverloaded(text)) {
+    return 'Gemini is busy right now. Try again in a minute.'
+  }
   if (/quota|RESOURCE_EXHAUSTED|\b429\b/i.test(text)) {
     return 'The Gemini free limit has been reached for now. Try again later.'
   }
@@ -152,7 +155,19 @@ export async function executeTool(tools, name, args, allowWrites) {
  * Returns a function with the same shape as the Claude SDK's `query`.
  * `client` can be injected for tests.
  */
-export function createGeminiQuery({ apiKey, model = GEMINI_DEFAULT_MODEL, allowWrites = false, client }) {
+/** Google's "too busy right now" answers. Worth asking again; a daily quota is not. */
+export const isOverloaded = (text) => /\b503\b|UNAVAILABLE|overloaded|high demand/i.test(String(text ?? ''))
+
+const RETRIES = 3
+
+export function createGeminiQuery({
+  apiKey,
+  model = GEMINI_DEFAULT_MODEL,
+  allowWrites = false,
+  client,
+  retryDelayMs = 1500,
+  fallbackModel = process.env.JARVIS_GEMINI_FALLBACK,
+}) {
   // The library defaults to the stable v1 API, which does not serve the
   // "-latest" model aliases. v1beta does, and is where new models appear first.
   const ai =
@@ -208,8 +223,13 @@ export function createGeminiQuery({ apiKey, model = GEMINI_DEFAULT_MODEL, allowW
 
         try {
           for (let step = 0; step < maxSteps; step++) {
-            const stream = await ai.models.generateContentStream({
-              model,
+            // When Google is overloaded, ask again a few times with growing pauses,
+            // and on the last try use the fallback model if one is set.
+            let stream
+            for (let attempt = 0; ; attempt++) {
+              try {
+                stream = await ai.models.generateContentStream({
+              model: attempt === RETRIES && fallbackModel ? fallbackModel : model,
               contents: history,
               config: {
                 systemInstruction: options.systemPrompt,
@@ -221,7 +241,13 @@ export function createGeminiQuery({ apiKey, model = GEMINI_DEFAULT_MODEL, allowW
                   ? { thinkingConfig: { thinkingBudget: Number(thinkingBudget) } }
                   : {}),
               },
-            })
+                })
+                break
+              } catch (err) {
+                if (ac.signal.aborted || !isOverloaded(err?.message ?? err) || attempt >= RETRIES) throw err
+                await new Promise((resolve) => setTimeout(resolve, retryDelayMs * 2 ** attempt))
+              }
+            }
 
             const modelParts = []
             const calls = []

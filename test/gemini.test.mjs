@@ -178,3 +178,39 @@ test('old turns are trimmed so the history stays bounded', async () => {
   assert.ok(last.length <= 12 * 2 + 1, `history was ${last.length} entries`)
   assert.equal(last[0].role, 'user')
 })
+
+test('when Google is overloaded the request is retried and then succeeds', async () => {
+  let calls = 0
+  const client = {
+    models: {
+      generateContentStream: async () => {
+        calls++
+        if (calls < 3) throw new Error('{"error":{"code":503,"status":"UNAVAILABLE","message":"This model is currently experiencing high demand."}}')
+        return (async function* () { yield { candidates: [{ content: { parts: [{ text: 'Finally.' }] } }] } })()
+      },
+    },
+  }
+  const q = createGeminiQuery({ client, retryDelayMs: 1 })({ prompt: oneQuestion('hi'), options: {} })
+  const msgs = await collect(q, 1)
+  assert.equal(calls, 3)
+  assert.equal(msgs.at(-1).subtype, 'success')
+  assert.equal(msgs.at(-1).result, 'Finally.')
+})
+
+test('if Google stays overloaded the fallback model is tried last, then a plain message is given', async () => {
+  const used = []
+  const client = { models: { generateContentStream: async ({ model }) => { used.push(model); throw new Error('503 UNAVAILABLE high demand') } } }
+  const q = createGeminiQuery({ client, model: 'main', fallbackModel: 'backup', retryDelayMs: 1 })({ prompt: oneQuestion('hi'), options: {} })
+  const msgs = await collect(q, 1)
+  assert.deepEqual(used, ['main', 'main', 'main', 'backup'])
+  assert.equal(msgs.at(-1).subtype, 'error_during_execution')
+  assert.match(msgs.at(-1).userMessage, /busy right now/)
+})
+
+test('a daily-quota error is not retried', async () => {
+  let calls = 0
+  const client = { models: { generateContentStream: async () => { calls++; throw new Error('429 RESOURCE_EXHAUSTED quota exceeded') } } }
+  const msgs = await collect(createGeminiQuery({ client, retryDelayMs: 1 })({ prompt: oneQuestion('hi'), options: {} }), 1)
+  assert.equal(calls, 1)
+  assert.match(msgs.at(-1).userMessage, /free limit/)
+})
