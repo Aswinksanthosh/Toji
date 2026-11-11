@@ -116,9 +116,9 @@ export async function speak(text: string): Promise<string | null> {
   try {
     const audio = await tts.generate(text, {
       voice,
-      // Slightly under natural pace — the character is never hurried, and the
-      // steadiness is most of the characterisation.
-      speed: 0.95,
+      // Faster than the original 0.95 (tuned for a quicker, snappier voice). The
+      // original comment: steadiness was most of the characterisation.
+      speed: 1.2,
     })
     failures = 0
     return URL.createObjectURL(audio.toBlob())
