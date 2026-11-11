@@ -22,6 +22,7 @@ import { uiServer } from './ui.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
 import { logTurn, memoryPrompt, memoryServer } from './memory.mjs'
+import { GEMINI_DEFAULT_MODEL, createGeminiQuery } from './gemini.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -196,6 +197,29 @@ const MODEL = process.env.JARVIS_MODEL ?? 'claude-opus-5'
  * dead air shows.
  */
 const EFFORT = process.env.JARVIS_EFFORT ?? 'high'
+
+/**
+ * Which brain answers. Gemini when a key is set, Claude otherwise, and
+ * JARVIS_BRAIN=claude or =gemini overrides either way.
+ */
+const GEMINI_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || ''
+const BRAIN = (process.env.JARVIS_BRAIN ?? (GEMINI_KEY ? 'gemini' : 'claude')).toLowerCase()
+if (BRAIN !== 'gemini' && BRAIN !== 'claude') {
+  console.error(`[jarvis] JARVIS_BRAIN must be "gemini" or "claude", not "${BRAIN}".`)
+  process.exit(1)
+}
+if (BRAIN === 'gemini' && !GEMINI_KEY) {
+  console.error(
+    '[jarvis] JARVIS_BRAIN=gemini needs a key. Create one free at https://aistudio.google.com ' +
+      'and set GEMINI_API_KEY (never put it in a file you commit).',
+  )
+  process.exit(1)
+}
+const GEMINI_MODEL = process.env.JARVIS_GEMINI_MODEL ?? GEMINI_DEFAULT_MODEL
+const runQuery =
+  BRAIN === 'gemini'
+    ? createGeminiQuery({ apiKey: GEMINI_KEY, model: GEMINI_MODEL, allowWrites: ALLOW_WRITES })
+    : query
 
 /**
  * Every MCP server Claude Code has configured, read out of its own config.
@@ -1089,7 +1113,11 @@ if (!LOOPBACK) {
 console.log(
   `[jarvis] speech ${elevenKey() ? 'via ElevenLabs (key from MCP config)' : 'using browser fallback voice'}`,
 )
-console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
+console.log(
+  BRAIN === 'gemini'
+    ? `[jarvis] brain gemini · model ${GEMINI_MODEL}`
+    : `[jarvis] model ${MODEL} · effort ${EFFORT}`,
+)
 console.log(
   `[jarvis] MCP servers from config: ${Object.keys(MCP_SERVERS).join(', ') || 'none'}` +
     (ACCOUNT_CONNECTORS ? ' · account connectors ON' : ' · account connectors off'),
@@ -1294,7 +1322,7 @@ wss.on('connection', (socket) => {
     if (!failed) sendTurn({ type: 'tool', name })
   }
 
-  const session = query({
+  const session = runQuery({
     prompt: userMessages(),
     options: {
       // Everything Claude Code has configured, plus the HUD as an in-process
@@ -1502,7 +1530,8 @@ wss.on('connection', (socket) => {
               )
               sendTurn({
                 type: 'error',
-                message: RESULT_FAILURES[msg.subtype] ?? RESULT_FAILURES.default,
+                message:
+                  msg.userMessage ?? RESULT_FAILURES[msg.subtype] ?? RESULT_FAILURES.default,
               })
             }
             cancelledAsk = null
