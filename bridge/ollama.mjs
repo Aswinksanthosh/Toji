@@ -67,7 +67,7 @@ function tagFilter() {
 }
 
 /** How much text is held back while deciding whether it is reasoning. */
-const HOLD_CHARS = 4000
+const HOLD_CHARS = 12000
 
 /**
  * Keeps a model's reasoning off the screen and out of the speaker.
@@ -161,15 +161,26 @@ export function createOllamaQuery({
     }
 
     // Qwen3 models obey a soft switch in the prompt even when the setting is ignored.
-    const systemText =
-      (options.systemPrompt ?? '') + (!think && /qwen3/i.test(model) ? '\n/no_think' : '')
+    // It has to sit in the LAST message, or the model starts reasoning again right
+    // after a tool result comes back.
+    const softOff = !think && /qwen3/i.test(model)
+    const systemText = (options.systemPrompt ?? '') + (softOff ? '\n/no_think' : '')
+    const noThink = (msgs) =>
+      softOff && msgs.length > 1
+        ? [...msgs.slice(0, -1), { ...msgs.at(-1), content: `${msgs.at(-1).content ?? ''}\n/no_think` }]
+        : msgs
 
     async function* run() {
       tools = await connectTools(options.mcpServers)
-      const toolList = tools.declarations.map((d) => ({
+      // A small model keeps reaching for the display-panel tools (jarvis__blade and
+      // friends) with made-up addresses. Hide them unless asked for.
+      const showDisplay = process.env.JARVIS_OLLAMA_DISPLAY === '1'
+      const toolList = tools.declarations
+        .filter((d) => showDisplay || !d.name.startsWith('jarvis__'))
+        .map((d) => ({
         type: 'function',
-        function: { name: d.name, description: d.description, parameters: d.parametersJsonSchema },
-      }))
+          function: { name: d.name, description: d.description, parameters: d.parametersJsonSchema },
+        }))
       if (tools.skipped) {
         console.log(`[jarvis] ollama: ${tools.skipped} configured MCP server(s) are not available yet`)
       }
@@ -200,7 +211,7 @@ export function createOllamaQuery({
                 body: JSON.stringify({
                   model,
                   stream: true,
-                  messages: [{ role: 'system', content: systemText }, ...history],
+                  messages: noThink([{ role: 'system', content: systemText }, ...history]),
                   ...(toolList.length ? { tools: toolList } : {}),
                   ...(withThink ? { think: false } : {}),
                 }),

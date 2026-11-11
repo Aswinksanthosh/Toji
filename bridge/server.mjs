@@ -554,7 +554,8 @@ const PROMPT_TOOLS = `Using tools:
 
 const SYSTEM_PROMPT = [
   PROMPT_CORE,
-  PROMPT_BLADES,
+  // The local model does not get the display tools, so it must not be told about them.
+  BRAIN === 'ollama' && process.env.JARVIS_OLLAMA_DISPLAY !== '1' ? '' : PROMPT_BLADES,
   DISABLED.has('interface') ? '' : PROMPT_INTERFACE,
   DISABLED.has('browser') ? '' : PROMPT_BROWSER,
   DISABLED.has('camera') ? '' : PROMPT_EYES,

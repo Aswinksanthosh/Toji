@@ -91,7 +91,7 @@ test('a tool call runs the real memory tool and the model sees the result', asyn
   assert.equal(msgs.at(-1).result, 'Noted.')
   const second = fetchFn.requests[1].messages
   assert.equal(second.at(-1).role, 'tool')
-  assert.equal(second.at(-1).content, 'Remembered.')
+  assert.match(second.at(-1).content, /^Remembered\./)
 })
 
 test('tool arguments that arrive as a string are parsed', async () => {
@@ -184,4 +184,38 @@ test('Qwen3 models get a no-think switch in the prompt, other models and thinkin
   assert.equal(await run('qwen3:4b', false), 'sys\n/no_think')
   assert.equal(await run('llama3.2:3b', false), 'sys')
   assert.equal(await run('qwen3:4b', true), 'sys')
+})
+
+test('the no-think switch rides on the last message, so it survives a tool result', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'jarvis-oll-'))
+  const fetchFn = fakeFetch([
+    [{ message: { tool_calls: [{ function: { name: 'jarvis_memory__remember', arguments: { note: 'x' } } }] } }],
+    [{ message: { content: 'Ok.' } }],
+  ])
+  await collect(createOllamaQuery({ fetchFn, think: false, model: 'qwen3:4b' })({
+    prompt: one('remember x'),
+    options: { systemPrompt: 'sys', mcpServers: { jarvis_memory: memoryServer(dir) } },
+  }))
+  const second = fetchFn.requests[1].messages
+  assert.equal(second.at(-1).role, 'tool')
+  assert.match(second.at(-1).content, /\/no_think$/)
+})
+
+test('the display tools are hidden from the local model unless asked for', async () => {
+  const { createSdkMcpServer, tool } = await import('@anthropic-ai/claude-agent-sdk')
+  const { z } = await import('zod')
+  const make = (name) =>
+    createSdkMcpServer({ name, tools: [tool('thing', 'x', { a: z.string().optional() }, async () => ({ content: [{ type: 'text', text: 'ok' }] }))] })
+  const fetchFn = fakeFetch([[{ message: { content: 'ok' } }]])
+  await collect(createOllamaQuery({ fetchFn })({
+    prompt: one('hi'),
+    options: { mcpServers: { jarvis: make('jarvis'), jarvis_memory: make('jarvis_memory') } },
+  }))
+  const names = fetchFn.requests[0].tools.map((t) => t.function.name)
+  assert.deepEqual(names, ['jarvis_memory__thing'])
+})
+
+test('long reasoning that ends in a closing tag is still dropped', () => {
+  const reasoning = 'thinking about it. '.repeat(500) // about 9,500 characters
+  assert.equal(feed([reasoning, '</think> The answer.']), ' The answer.')
 })
