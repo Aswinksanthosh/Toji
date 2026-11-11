@@ -90,7 +90,9 @@ export function createOllamaQuery({
   url = OLLAMA_DEFAULT_URL,
   allowWrites = false,
   fetchFn = globalThis.fetch,
-  think = process.env.JARVIS_OLLAMA_THINK,
+  // Thinking models write hundreds of lines of reasoning before answering, which
+  // a voice assistant cannot afford. Off unless JARVIS_OLLAMA_THINK=1.
+  think = process.env.JARVIS_OLLAMA_THINK === '1',
 }) {
   return function ollamaQuery({ prompt, options = {} }) {
     const maxSteps = options.maxTurns ?? 12
@@ -137,19 +139,27 @@ export function createOllamaQuery({
 
         try {
           for (let step = 0; step < maxSteps; step++) {
-            const res = await fetchFn(`${url}/api/chat`, {
-              method: 'POST',
-              signal: ac.signal,
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({
-                model,
-                stream: true,
-                messages: [{ role: 'system', content: options.systemPrompt ?? '' }, ...history],
-                ...(toolList.length ? { tools: toolList } : {}),
-                ...(think === '0' ? { think: false } : {}),
-              }),
-            })
-            if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`)
+            const request = (withThink) =>
+              fetchFn(`${url}/api/chat`, {
+                method: 'POST',
+                signal: ac.signal,
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  model,
+                  stream: true,
+                  messages: [{ role: 'system', content: options.systemPrompt ?? '' }, ...history],
+                  ...(toolList.length ? { tools: toolList } : {}),
+                  ...(withThink ? { think: false } : {}),
+                }),
+              })
+            let res = await request(!think)
+            let failedText = res.ok ? '' : (await res.text().catch(() => '')).slice(0, 200)
+            // Models that cannot think reject the setting; ask again without it.
+            if (!res.ok && res.status === 400 && /think/i.test(failedText)) {
+              res = await request(false)
+              failedText = res.ok ? '' : (await res.text().catch(() => '')).slice(0, 200)
+            }
+            if (!res.ok) throw new Error(`Ollama ${res.status}: ${failedText}`)
 
             const filter = thinkFilter()
             let stepText = ''

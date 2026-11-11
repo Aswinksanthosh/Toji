@@ -125,3 +125,27 @@ test('interrupt aborts the turn in flight', async () => {
   assert.equal(seen.at(-1).subtype, 'error_during_execution')
   assert.deepEqual(seen.at(-1).errors, [])
 })
+
+test('thinking is switched off by default, and retried without the setting for models that reject it', async () => {
+  const calls = []
+  const fetchFn = async (url, init) => {
+    const body = JSON.parse(init.body)
+    calls.push(body)
+    if (body.think === false && calls.length === 1) return new Response('"model" does not support thinking', { status: 400 })
+    return { ok: true, body: (async function* () { yield JSON.stringify({ message: { content: 'Hi.' } }) + '\n' })() }
+  }
+  const msgs = await collect(createOllamaQuery({ fetchFn })({ prompt: one('hi'), options: {} }))
+  assert.equal(calls[0].think, false)
+  assert.equal(calls[1].think, undefined)
+  assert.equal(msgs.at(-1).result, 'Hi.')
+})
+
+test('JARVIS_OLLAMA_THINK=1 leaves thinking on', async () => {
+  const calls = []
+  const fetchFn = async (url, init) => {
+    calls.push(JSON.parse(init.body))
+    return { ok: true, body: (async function* () { yield JSON.stringify({ message: { content: 'Hi.' } }) + '\n' })() }
+  }
+  await collect(createOllamaQuery({ fetchFn, think: true })({ prompt: one('hi'), options: {} }))
+  assert.equal(calls[0].think, undefined)
+})
