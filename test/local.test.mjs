@@ -111,8 +111,8 @@ test('read-only mode offers no tool that changes anything', async () => {
 
 test('writes mode adds file writing, and the keyboard only on Windows', async () => {
   const c = ctx()
-  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'win32' })), ['ask_gemini', 'click_element', 'list_clickable', 'list_folder', 'lock_screen', 'make_folder', 'open_app', 'open_url', 'play_youtube', 'press_keys', 'read_file', 'scroll', 'sleep_computer', 'steam_launch', 'steam_open', 'type_text', 'write_file'])
-  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'linux' })), ['list_folder', 'make_folder', 'read_file', 'write_file'])
+  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'win32' })), ['ask_gemini', 'click_element', 'list_clickable', 'list_folder', 'lock_screen', 'make_folder', 'open_app', 'open_url', 'play_youtube', 'press_keys', 'read_file', 'scroll', 'sleep_computer', 'steam_launch', 'steam_open', 'type_text', 'wake_device', 'write_file'])
+  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'linux' })), ['list_folder', 'make_folder', 'read_file', 'wake_device', 'write_file'])
 })
 
 test('press_keys passes the parsed shortcut to the runner, and refuses blocked ones before running', async () => {
@@ -351,4 +351,26 @@ test('steam_launch and steam_open launch only steam:// addresses', async () => {
 test('the Steam tools do not exist without writes mode', async () => {
   const names = await toolNames(localServer({ ...ctx(), allowWrites: false, platform: 'win32' }))
   assert.ok(!names.includes('steam_launch') && !names.includes('steam_open'))
+})
+
+// -- Wake-on-LAN tool ---------------------------------------------------------------
+
+test('wake_device wakes only devices from your list, and never a raw MAC or address', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'jarvis-dev-'))
+  const devicesFile = join(dir, 'devices.json')
+  writeFileSync(devicesFile, JSON.stringify({ 'laptop-b': { mac: 'AA:BB:CC:DD:EE:FF', broadcast: '10.0.0.255' } }))
+  const woken = []
+  const client = await connected({ devicesFile, wake: async (mac, o) => woken.push([mac, o]) })
+  const ok = await client.callTool({ name: 'wake_device', arguments: { name: 'Laptop-B' } })
+  assert.match(ok.content[0].text, /Sent the wake-up signal/)
+  assert.match(ok.content[0].text, /cannot tell whether/)
+  const raw = await client.callTool({ name: 'wake_device', arguments: { name: 'AA:BB:CC:00:00:01' } })
+  assert.equal(raw.isError, true)
+  assert.match(raw.content[0].text, /laptop-b/)
+  assert.deepEqual(woken, [['AA:BB:CC:DD:EE:FF', { broadcast: '10.0.0.255' }]])
+})
+
+test('wake_device does not exist without writes mode', async () => {
+  const names = await toolNames(localServer({ ...ctx(), allowWrites: false, platform: 'win32' }))
+  assert.ok(!names.includes('wake_device'))
 })
