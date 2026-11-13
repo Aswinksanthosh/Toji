@@ -111,7 +111,7 @@ test('read-only mode offers no tool that changes anything', async () => {
 
 test('writes mode adds file writing, and the keyboard only on Windows', async () => {
   const c = ctx()
-  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'win32' })), ['ask_gemini', 'click_element', 'list_clickable', 'list_folder', 'lock_screen', 'make_folder', 'open_app', 'open_url', 'play_youtube', 'press_keys', 'read_file', 'scroll', 'sleep_computer', 'type_text', 'write_file'])
+  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'win32' })), ['ask_gemini', 'click_element', 'list_clickable', 'list_folder', 'lock_screen', 'make_folder', 'open_app', 'open_url', 'play_youtube', 'press_keys', 'read_file', 'scroll', 'sleep_computer', 'steam_launch', 'steam_open', 'type_text', 'write_file'])
   assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'linux' })), ['list_folder', 'make_folder', 'read_file', 'write_file'])
 })
 
@@ -308,4 +308,47 @@ test('the Gemini-app tool can be switched off, and the other desktop tools stay'
   const names = await toolNames(localServer({ ...ctx(), allowWrites: true, platform: 'win32', geminiApp: false }))
   assert.ok(!names.includes('ask_gemini'))
   assert.ok(names.includes('open_app') && names.includes('type_text') && names.includes('play_youtube'))
+})
+
+// -- Steam ------------------------------------------------------------------------
+
+import { knownGames, steamGameUrl } from '../bridge/local.mjs'
+
+test('games come only from your list or a plain number, and become a Steam address and nothing else', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'jarvis-games-'))
+  const file = join(dir, 'games.json')
+  writeFileSync(file, JSON.stringify({ Hades: 1145360, 'Portal 2': '620', evil: 'calc.exe', bad: '12 34', huge: '123456789012' }))
+  assert.deepEqual(knownGames(file), { hades: '1145360', 'portal 2': '620' })
+  assert.equal(steamGameUrl('Hades', file), 'steam://rungameid/1145360')
+  assert.equal(steamGameUrl('  portal 2 ', file), 'steam://rungameid/620')
+  assert.equal(steamGameUrl('730', file), 'steam://rungameid/730')
+  for (const bad of ['evil', 'calc.exe', '730; calc', '..\\..\\x', '', 'unknown game', '12345678901']) {
+    assert.equal(steamGameUrl(bad, file), null, bad)
+  }
+  assert.equal(steamGameUrl('hades', join(dir, 'missing.json')), null)
+})
+
+test('steam_launch and steam_open launch only steam:// addresses', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'jarvis-games-'))
+  const gamesFile = join(dir, 'games.json')
+  writeFileSync(gamesFile, JSON.stringify({ hades: 1145360 }))
+  const launched = []
+  const client = await connected({ launch: async (t, o) => launched.push([t, o]), gamesFile })
+  const ok = await client.callTool({ name: 'steam_launch', arguments: { game: 'Hades' } })
+  assert.match(ok.content[0].text, /Starting Hades/)
+  const unknown = await client.callTool({ name: 'steam_launch', arguments: { game: 'calc.exe' } })
+  assert.equal(unknown.isError, true)
+  assert.match(unknown.content[0].text, /hades/)
+  await client.callTool({ name: 'steam_open', arguments: { mode: 'bigpicture' } })
+  await client.callTool({ name: 'steam_open', arguments: {} })
+  assert.deepEqual(launched, [
+    ['steam://rungameid/1145360', undefined],
+    ['steam://open/bigpicture', undefined],
+    ['steam://open/main', undefined],
+  ])
+})
+
+test('the Steam tools do not exist without writes mode', async () => {
+  const names = await toolNames(localServer({ ...ctx(), allowWrites: false, platform: 'win32' }))
+  assert.ok(!names.includes('steam_launch') && !names.includes('steam_open'))
 })
