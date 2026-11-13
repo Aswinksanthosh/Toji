@@ -97,6 +97,18 @@ if ($env:JARVIS_BRAIN -eq 'gemini') {
     Fail 'No Gemini key found. Create a free one at https://aistudio.google.com and save it as GEMINI_API_KEY.'
   }
   Say 'Using the Gemini brain (online).'
+} elseif ($env:JARVIS_BRAIN -eq 'openai') {
+  if (-not $env:JARVIS_OPENAI_MODEL) {
+    Fail 'Set JARVIS_OPENAI_MODEL to the model name your server expects. See README-openai.md.'
+  }
+  $base = $env:JARVIS_OPENAI_URL
+  if (-not $base) { $base = 'http://127.0.0.1:1234/v1' }
+  try {
+    Invoke-WebRequest ($base.TrimEnd('/') + '/models') -UseBasicParsing -TimeoutSec 3 | Out-Null
+    Say ("Model server reachable at {0}." -f $base)
+  } catch {
+    Say ("Warning: could not reach the model server at {0}. Start it first (LM Studio, llama.cpp, Odysseus...)." -f $base)
+  }
 } elseif ($env:JARVIS_BRAIN -eq 'claude') {
   if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
     Fail 'The Claude brain needs Claude Code installed and logged in: npm install -g @anthropic-ai/claude-code, then run claude once.'

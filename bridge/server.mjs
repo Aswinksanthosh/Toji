@@ -24,6 +24,7 @@ import { visionServer } from './vision.mjs'
 import { logTurn, memoryPrompt, memoryServer } from './memory.mjs'
 import { GEMINI_DEFAULT_MODEL, createGeminiQuery } from './gemini.mjs'
 import { OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, createOllamaQuery } from './ollama.mjs'
+import { OPENAI_DEFAULT_URL, createOpenAIQuery } from './openai.mjs'
 import { googleConnected, googlePrompt, googleServer } from './google.mjs'
 import { localPrompt, localServer } from './local.mjs'
 import { createTextSession, withFallback } from './session.mjs'
@@ -210,8 +211,8 @@ const EFFORT = process.env.JARVIS_EFFORT ?? 'high'
  */
 const GEMINI_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || ''
 const BRAIN = (process.env.JARVIS_BRAIN ?? (GEMINI_KEY ? 'gemini' : 'claude')).toLowerCase()
-if (BRAIN !== 'gemini' && BRAIN !== 'claude' && BRAIN !== 'ollama') {
-  console.error(`[jarvis] JARVIS_BRAIN must be "gemini", "claude" or "ollama", not "${BRAIN}".`)
+if (!['gemini', 'claude', 'ollama', 'openai'].includes(BRAIN)) {
+  console.error(`[jarvis] JARVIS_BRAIN must be "gemini", "claude", "ollama" or "openai", not "${BRAIN}".`)
   process.exit(1)
 }
 if (BRAIN === 'gemini' && !GEMINI_KEY) {
@@ -224,16 +225,26 @@ if (BRAIN === 'gemini' && !GEMINI_KEY) {
 const GEMINI_MODEL = process.env.JARVIS_GEMINI_MODEL ?? GEMINI_DEFAULT_MODEL
 const OLLAMA_MODEL = process.env.JARVIS_OLLAMA_MODEL ?? OLLAMA_DEFAULT_MODEL
 const OLLAMA_URL = process.env.JARVIS_OLLAMA_URL ?? OLLAMA_DEFAULT_URL
+// Any OpenAI-compatible server (LM Studio, llama.cpp, Odysseus, a hosted API).
+const OPENAI_MODEL = process.env.JARVIS_OPENAI_MODEL ?? ''
+const OPENAI_URL = process.env.JARVIS_OPENAI_URL ?? OPENAI_DEFAULT_URL
+const OPENAI_KEY = process.env.JARVIS_OPENAI_KEY ?? ''
+if (BRAIN === 'openai' && !OPENAI_MODEL) {
+  console.error('[jarvis] JARVIS_BRAIN=openai needs JARVIS_OPENAI_MODEL (the model name your server expects). See README-openai.md.')
+  process.exit(1)
+}
 const runQuery =
   BRAIN === 'gemini'
     ? createGeminiQuery({ apiKey: GEMINI_KEY, model: GEMINI_MODEL, allowWrites: ALLOW_WRITES })
     : BRAIN === 'ollama'
       ? createOllamaQuery({ model: OLLAMA_MODEL, url: OLLAMA_URL, allowWrites: ALLOW_WRITES })
-      : query
+      : BRAIN === 'openai'
+        ? createOpenAIQuery({ model: OPENAI_MODEL, url: OPENAI_URL, apiKey: OPENAI_KEY, allowWrites: ALLOW_WRITES })
+        : query
 
 // A small local model copes badly with dozens of tools. Unless told otherwise,
 // leave out the heavy ones (the interface retinting, the camera, the browser).
-if (BRAIN === 'ollama' && process.env.JARVIS_DISABLE === undefined) {
+if ((BRAIN === 'ollama' || BRAIN === 'openai') && process.env.JARVIS_DISABLE === undefined) {
   for (const name of ['interface', 'camera', 'browser']) DISABLED.add(name)
 }
 if (BRAIN === 'ollama') {
@@ -559,7 +570,7 @@ const PROMPT_TOOLS = `Using tools:
 const SYSTEM_PROMPT = [
   PROMPT_CORE,
   // The local model does not get the display tools, so it must not be told about them.
-  BRAIN === 'ollama' && process.env.JARVIS_OLLAMA_DISPLAY !== '1' ? '' : PROMPT_BLADES,
+  (BRAIN === 'ollama' || BRAIN === 'openai') && process.env.JARVIS_OLLAMA_DISPLAY !== '1' ? '' : PROMPT_BLADES,
   DISABLED.has('interface') ? '' : PROMPT_INTERFACE,
   DISABLED.has('browser') ? '' : PROMPT_BROWSER,
   DISABLED.has('camera') ? '' : PROMPT_EYES,
@@ -1122,7 +1133,7 @@ const PHONE_PASSWORD = process.env.JARVIS_PHONE_PASSWORD ?? ''
 if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
   // The Claude brain cannot serve the phone, so under Claude the phone uses Gemini.
   // JARVIS_PHONE_BRAIN=ollama makes the phone always use the local model.
-  const chosenPhoneBrain = ['gemini', 'ollama', 'claude'].includes(process.env.JARVIS_PHONE_BRAIN ?? '')
+  const chosenPhoneBrain = ['gemini', 'ollama', 'claude', 'openai'].includes(process.env.JARVIS_PHONE_BRAIN ?? '')
     ? process.env.JARVIS_PHONE_BRAIN
     : null
   const PHONE_BRAIN =
@@ -1131,7 +1142,7 @@ if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
       : chosenPhoneBrain ?? (BRAIN === 'claude' ? (GEMINI_KEY ? 'gemini' : 'ollama') : BRAIN)
   {
     if (PHONE_BRAIN !== BRAIN) {
-      console.log(`[jarvis] phone access uses ${{ gemini: 'Gemini', ollama: 'your local model (Ollama)', claude: 'Claude' }[PHONE_BRAIN]} while ${BRAIN} runs the page.`)
+      console.log(`[jarvis] phone access uses ${{ gemini: 'Gemini', ollama: 'your local model (Ollama)', claude: 'Claude', openai: 'your model server' }[PHONE_BRAIN]} while ${BRAIN} runs the page.`)
     }
     /**
      * Claude for the phone. Unlike the main page it gets NO built-in tools (no
@@ -1181,7 +1192,9 @@ if (TELEGRAM_TOKEN || PHONE_PASSWORD) {
           ? claudePhoneQuery(writes)
           : brain === 'gemini'
             ? createGeminiQuery({ apiKey: GEMINI_KEY, model: GEMINI_MODEL, allowWrites: writes })
-            : createOllamaQuery({ model: OLLAMA_MODEL, url: OLLAMA_URL, allowWrites: writes })
+            : brain === 'openai' && OPENAI_MODEL
+              ? createOpenAIQuery({ model: OPENAI_MODEL, url: OPENAI_URL, apiKey: OPENAI_KEY, allowWrites: writes })
+              : createOllamaQuery({ model: OLLAMA_MODEL, url: OLLAMA_URL, allowWrites: writes })
       const win = writes && process.platform === 'win32'
       const phonePrompt =
         PROMPT_CORE +
@@ -1322,7 +1335,9 @@ console.log(
     ? `[jarvis] brain gemini · model ${GEMINI_MODEL}`
     : BRAIN === 'ollama'
       ? `[jarvis] brain ollama (local) · model ${OLLAMA_MODEL}`
-      : `[jarvis] model ${MODEL} · effort ${EFFORT}`,
+      : BRAIN === 'openai'
+        ? `[jarvis] brain openai-compatible · model ${OPENAI_MODEL} · ${OPENAI_URL}`
+        : `[jarvis] model ${MODEL} · effort ${EFFORT}`,
 )
 console.log(
   `[jarvis] MCP servers from config: ${Object.keys(MCP_SERVERS).join(', ') || 'none'}` +

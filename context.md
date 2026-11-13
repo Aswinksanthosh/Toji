@@ -6,7 +6,7 @@ Project memory for Claude Code sessions on this repo. Keep it short and generic.
 ## What this is
 The owner's fork of an MIT-licensed browser voice assistant ("Jarvis"). A React + Vite + Three.js page (`src/`) talks over a local WebSocket to a Node bridge (`bridge/server.mjs`), which runs one of three brains and the tools. The assistant is still called Jarvis: a rename to another name was tried and rolled back, and the internal `JARVIS_*` setting names must not change.
 
-**Brains** (chosen by `JARVIS_BRAIN`, one launcher each): `claude` (Claude Agent SDK), `gemini` (`bridge/gemini.mjs`), `ollama` (`bridge/ollama.mjs`, local). Gemini and Ollama speak the same message stream as the Claude SDK, so the page, tools and permission gate are shared.
+**Brains** (chosen by `JARVIS_BRAIN`, one launcher each): `claude` (Claude Agent SDK), `gemini` (`bridge/gemini.mjs`), `ollama` (`bridge/ollama.mjs`, local), `openai` (`bridge/openai.mjs`, any OpenAI-compatible server). The non-Claude brains speak the same message stream as the Claude SDK, so the page, tools and permission gate are shared.
 
 **Where things live**
 - `bridge/policy.mjs` — the permission gate (`decideTool`, `checkToolUse`). Every tool is classified here.
@@ -28,7 +28,7 @@ The owner's fork of an MIT-licensed browser voice assistant ("Jarvis"). A React 
 7. Be honest about testing: the Linux sandbox cannot run the PowerShell, keyboard, graphics-card or Windows-firewall parts. Say so instead of claiming they work.
 
 ## Verify after editing
-`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (112 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
+`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (121 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
 
 ## Git
 Work on `main` of the owner's fork. One commit per change, with the attribution lines the session gives. Do not force-push without approval, and do not open a pull request unless asked.
