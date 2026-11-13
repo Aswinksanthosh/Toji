@@ -39,8 +39,24 @@ test('the device list keeps good entries, fixes a bad broadcast address, and ski
     empty: {},
   }))
   assert.deepEqual(knownDevices(file), {
-    'laptop-b': { mac: 'AA:BB:CC:DD:EE:FF', broadcast: '10.0.0.255' },
-    'laptop-c': { mac: 'aa-bb-cc-dd-ee-00', broadcast: '255.255.255.255' },
+    'laptop-b': { mac: 'AA:BB:CC:DD:EE:FF', broadcast: '10.0.0.255', agent: '' },
+    'laptop-c': { mac: 'aa-bb-cc-dd-ee-00', broadcast: '255.255.255.255', agent: '' },
   })
   assert.deepEqual(knownDevices(join(dir, 'missing.json')), {})
+})
+
+test('a device can have an agent address, an agent address alone is enough, and a bad address is dropped', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'jarvis-dev-'))
+  const file = join(dir, 'devices.json')
+  writeFileSync(file, JSON.stringify({
+    a: { mac: 'AA:BB:CC:DD:EE:FF', agent: 'http://100.1.2.3:8790/' },
+    b: { agent: 'https://box.example.ts.net:8790' },
+    c: { mac: 'AA:BB:CC:DD:EE:00', agent: 'javascript:alert(1)' },
+    d: { agent: 'http://x y' },
+  }))
+  const d = knownDevices(file)
+  assert.equal(d.a.agent, 'http://100.1.2.3:8790')
+  assert.deepEqual(d.b, { mac: '', broadcast: '255.255.255.255', agent: 'https://box.example.ts.net:8790' })
+  assert.equal(d.c.agent, '')
+  assert.equal(d.d, undefined)
 })

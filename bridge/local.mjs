@@ -259,9 +259,17 @@ export function runLaunch(target, { web = false, browser } = {}) {
   const chosen = web && browser && BROWSER_PATHS[browser] ? BROWSER_PATHS[browser].find((p) => existsSync(p)) : null
   const chrome = web ? chosen ?? CHROME_PATHS.find((p) => existsSync(p)) : null
   const [cmd, args] = chrome ? [chrome, [target]] : web ? ['rundll32.exe', ['url.dll,FileProtocolHandler', target]] : ['cmd.exe', ['/c', 'start', '', target]]
-  const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true })
-  child.unref()
-  return Promise.resolve()
+  // Wait for the program to actually start. A launch that fails (the command is not
+  // there) must be reported, not thrown later as an uncaught error that takes the
+  // whole process down.
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true })
+    child.once('error', () => reject(new Error('That program could not be started.')))
+    child.once('spawn', () => {
+      child.unref()
+      resolve()
+    })
+  })
 }
 
 /**
@@ -594,6 +602,7 @@ export function localServer({ workspace, roots, allowWrites = false, files = tru
         async ({ name }) => {
           const devices = knownDevices(devicesFile)
           const device = devices[String(name).toLowerCase().trim()]
+          if (device && !device.mac) return fail('That device has no wake-up address in devices.json.')
           if (!device) return fail(`I only know these devices: ${Object.keys(devices).join(', ') || 'none yet'}. Add more to devices.json.`)
           try {
             await wake(device.mac, { broadcast: device.broadcast })

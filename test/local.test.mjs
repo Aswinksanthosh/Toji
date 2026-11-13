@@ -416,3 +416,11 @@ test('a broken screenshot is reported, and the screen tools are absent without w
   const names = await toolNames(localServer({ ...ctx(), allowWrites: false, platform: 'win32' }))
   assert.ok(!names.includes('look_at_screen') && !names.includes('click_at'))
 })
+
+import { runLaunch } from '../bridge/local.mjs'
+
+test('a launch that cannot start is reported as an error, and does not crash the process', { skip: process.platform === 'win32' }, async () => {
+  // On this platform cmd.exe does not exist, so the launch must fail cleanly.
+  await assert.rejects(() => runLaunch('steam://open/main'), /could not be started/)
+  await assert.rejects(() => runLaunch('https://example.com', { web: true }), /could not be started/)
+})

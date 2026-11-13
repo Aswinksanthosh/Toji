@@ -10,13 +10,17 @@ The owner's fork of an MIT-licensed browser voice assistant ("Jarvis"). A React 
 
 **Where things live**
 - `bridge/policy.mjs` — the permission gate (`decideTool`, `checkToolUse`). Every tool is classified here.
-- `bridge/local.mjs` + `desktop.ps1`, `gemini-ask.ps1` — laptop control: files, shortcuts, open apps/URLs, YouTube, Steam games (from `~/.jarvis/games.json`), wake sleeping devices (`bridge/wake.mjs`, from `~/.jarvis/devices.json`), type, click, scroll, lock, sleep, ask the Gemini app.
+- `bridge/local.mjs` + `desktop.ps1`, `gemini-ask.ps1` — laptop control: files, shortcuts, open apps/URLs, YouTube, Steam games (from `~/.jarvis/games.json`), wake sleeping devices (`bridge/wake.mjs`, from `~/.jarvis/devices.json`), type, click, scroll, lock, sleep, ask the Gemini app, and screen vision (`look_at_screen`, `click_at`: Claude and Gemini see a screenshot and click a position in it).
 - `bridge/memory.mjs` — notes (capped, loaded every session) and a local conversation log searched by `recall`.
 - `bridge/google.mjs` — read-only Calendar and Gmail (optional login).
 - `bridge/phone.mjs`, `telegram.mjs`, `session.mjs` — phone access (password page over Wi-Fi or Tailscale; Telegram bot).
+- `bridge/remote.mjs`, `scripts/remote.mjs`, `Remote.cmd` — no-AI phone buttons (wake, Steam, game, lock, sleep): an agent per laptop plus a hub page. See `README-remote.md`.
 - `src/config.ts` — page settings from `.env.local` (`VITE_*`). `src/App.tsx`, `src/ui/Hud.tsx` — the page.
 - `scripts/launch.ps1`, `start-limited.ps1`, `Jarvis*.cmd` — one-click Windows launchers and the graphics clock cap.
 - `.env.example` documents every setting. `README-*.md` are the setup guides.
+
+## How to reply
+Keep chat replies short. Explain only when the owner asks questions.
 
 ## Rules for editing
 1. Read this file and the comment at the top of any file before changing it.
@@ -31,7 +35,7 @@ The owner's fork of an MIT-licensed browser voice assistant ("Jarvis"). A React 
 Update `context.md` in the same commit whenever a new idea comes up or anything changes, even a small change: a setting, a tool, a launcher, a rule, a decision. Add new ideas to the backlog below. **Personal information never goes here.** If there is personal information to store, use the owner's private vault repo (attach it with `add_repo` only then), and not otherwise.
 
 ## Backlog (ideas, not built yet)
-- Turn the laptop on from the phone: the wake-up sender is built (`wake_device`, `scripts/wake.mjs`, see `README-wake.md`) but untested on real hardware. Open: a small password-protected "wake relay" page for an always-on device (Pi, old PC), and finding out whether the owner's laptops stay reachable in Modern Standby (then no wake is needed). Fallbacks: smart plug plus a BIOS "power on when AC attached" option, or leaving the laptop on.
+- Turn the laptop on from the phone: the wake sender and the no-AI remote page are built (`README-wake.md`, `README-remote.md`) but untested on real hardware. Open: finding out whether the laptops stay reachable in Modern Standby (then no wake is needed), and what always-on device can host the hub. Fallbacks: smart plug plus a BIOS "power on when AC attached" option, or leaving the laptop on.
 - Steam: a gaming power or graphics profile switch. Decided: no timer, the owner sends the command; two laptops each keep their own Steam login (Jarvis never handles Steam passwords or switches accounts).
 - Offline voice (Whisper for hearing, Piper for speaking) so no audio goes to Google.
 - Route by difficulty: easy questions to the local model, hard ones to Claude or Gemini.
@@ -39,8 +43,12 @@ Update `context.md` in the same commit whenever a new idea comes up or anything 
 - A web research tool for the local model.
 - Automatic fallback to the local model on the main page when Gemini is out of free requests (the phone page already does this).
 
+## Known gotchas
+- Every spawned process needs an `error` handler. An unhandled spawn failure takes down the whole process (found and fixed in `runLaunch`).
+- Screenshots go to Claude or Gemini and can show private things: only on request.
+
 ## Verify after editing
-`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (130 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
+`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (143 pass, 2 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
 
 ## Git
 Work on `main` of the owner's fork. One commit per change, with the attribution lines the session gives. Do not force-push without approval, and do not open a pull request unless asked.

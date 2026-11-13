@@ -5,7 +5,9 @@
  * or an old PC. The sleeping laptop cannot wake itself.
  *
  * Devices are named in ~/.jarvis/devices.json, like
- *   { "laptop-b": { "mac": "AA:BB:CC:DD:EE:FF", "broadcast": "10.0.0.255" } }
+ *   { "laptop-b": { "mac": "AA:BB:CC:DD:EE:FF", "broadcast": "10.0.0.255",
+ *                  "agent": "http://100.101.102.103:8790" } }
+ * ("agent" is the laptop's remote agent address, used by the phone remote buttons.)
  * and nothing outside that file is ever woken.
  */
 
@@ -32,16 +34,20 @@ export function magicPacket(mac) {
 /** A plain IPv4 address, for the broadcast address. */
 const isIPv4 = (s) => /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(s) && s.split('.').every((n) => Number(n) <= 255)
 
-/** The devices you named, as { name: { mac, broadcast } }. Bad entries are skipped. */
+/** The devices you named, as { name: { mac, broadcast, agent } }. Bad entries are skipped. */
 export function knownDevices(file = DEVICES_FILE) {
   try {
     const raw = JSON.parse(readFileSync(file, 'utf8'))
     const out = {}
     for (const [name, d] of Object.entries(raw)) {
-      if (!parseMac(d?.mac)) continue
+      const agent = String(d?.agent ?? '').trim().replace(/\/$/, '')
+      const goodAgent = /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?$/.test(agent) ? agent : ''
+      const goodMac = Boolean(parseMac(d?.mac))
+      if (!goodMac && !goodAgent) continue
       out[name.toLowerCase().trim()] = {
-        mac: String(d.mac).trim(),
-        broadcast: isIPv4(String(d.broadcast ?? '')) ? d.broadcast : '255.255.255.255',
+        mac: goodMac ? String(d.mac).trim() : '',
+        broadcast: isIPv4(String(d?.broadcast ?? '')) ? d.broadcast : '255.255.255.255',
+        agent: goodAgent,
       }
     }
     return out
