@@ -4,7 +4,7 @@
 Project memory for Claude Code sessions on this repo. Keep it short and generic.
 
 ## What this is
-The owner's fork of an MIT-licensed browser voice assistant ("Jarvis"). A React + Vite + Three.js page (`src/`) talks over a local WebSocket to a Node bridge (`bridge/server.mjs`), which runs one of three brains and the tools. The assistant is still called Jarvis: a rename to another name was tried and rolled back, and the internal `JARVIS_*` setting names must not change.
+The owner's fork of an MIT-licensed browser voice assistant ("Jarvis"). A React + Vite + Three.js page (`src/`) talks over a local WebSocket to a Node bridge (`bridge/server.mjs`), which runs one of the brains and the tools. The assistant is still called Jarvis: a rename to another name was tried and rolled back, and the internal `JARVIS_*` setting names must not change.
 
 **Brains** (chosen by `JARVIS_BRAIN`, one launcher each): `claude` (Claude Agent SDK), `gemini` (`bridge/gemini.mjs`), `ollama` (`bridge/ollama.mjs`, local), `openai` (`bridge/openai.mjs`, any OpenAI-compatible server). The non-Claude brains speak the same message stream as the Claude SDK, so the page, tools and permission gate are shared.
 
