@@ -111,7 +111,7 @@ test('read-only mode offers no tool that changes anything', async () => {
 
 test('writes mode adds file writing, and the keyboard only on Windows', async () => {
   const c = ctx()
-  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'win32' })), ['ask_gemini', 'click_element', 'list_clickable', 'list_folder', 'lock_screen', 'make_folder', 'open_app', 'open_url', 'play_youtube', 'press_keys', 'read_file', 'scroll', 'sleep_computer', 'steam_launch', 'steam_open', 'type_text', 'wake_device', 'write_file'])
+  assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'win32' })), ['ask_gemini', 'click_at', 'click_element', 'list_clickable', 'list_folder', 'lock_screen', 'look_at_screen', 'make_folder', 'open_app', 'open_url', 'play_youtube', 'press_keys', 'read_file', 'scroll', 'sleep_computer', 'steam_launch', 'steam_open', 'type_text', 'wake_device', 'write_file'])
   assert.deepEqual(await toolNames(localServer({ ...c, allowWrites: true, platform: 'linux' })), ['list_folder', 'make_folder', 'read_file', 'wake_device', 'write_file'])
 })
 
@@ -373,4 +373,46 @@ test('wake_device wakes only devices from your list, and never a raw MAC or addr
 test('wake_device does not exist without writes mode', async () => {
   const names = await toolNames(localServer({ ...ctx(), allowWrites: false, platform: 'win32' }))
   assert.ok(!names.includes('wake_device'))
+})
+
+// -- screen vision and clicking by position ------------------------------------------
+
+test('look_at_screen returns the image, and click_at scales a position in it back to real pixels', async () => {
+  const calls = []
+  const desktop = async (action, params) => {
+    calls.push([action, params])
+    return action === 'shot' ? 'meta:2560,1440,1280,720\nQUJDREVGRw==' : ''
+  }
+  const client = await connected({ desktop })
+  const shot = await client.callTool({ name: 'look_at_screen', arguments: {} })
+  assert.equal(shot.content[0].type, 'image')
+  assert.equal(shot.content[0].data, 'QUJDREVGRw==')
+  assert.equal(shot.content[0].mimeType, 'image/png')
+  assert.match(shot.content[1].text, /1280x720/)
+  const click = await client.callTool({ name: 'click_at', arguments: { x: 640, y: 360 } })
+  assert.match(click.content[0].text, /Clicked at 640,360/)
+  await client.callTool({ name: 'click_at', arguments: { x: 100, y: 50, button: 'right', double: true } })
+  assert.deepEqual(calls.slice(1), [
+    ['clickat', { x: 1280, y: 720, button: undefined, double: false }],
+    ['clickat', { x: 200, y: 100, button: 'right', double: true }],
+  ])
+})
+
+test('click_at needs a screenshot first, and refuses a position outside it', async () => {
+  const calls = []
+  const client = await connected({ desktop: async (a) => (calls.push(a), a === 'shot' ? 'meta:1920,1080,1280,720\nQQ==' : '') })
+  const early = await client.callTool({ name: 'click_at', arguments: { x: 5, y: 5 } })
+  assert.equal(early.isError, true)
+  assert.match(early.content[0].text, /screenshot first/)
+  await client.callTool({ name: 'look_at_screen', arguments: {} })
+  const outside = await client.callTool({ name: 'click_at', arguments: { x: 1280, y: 10 } })
+  assert.equal(outside.isError, true)
+  assert.deepEqual(calls, ['shot'])
+})
+
+test('a broken screenshot is reported, and the screen tools are absent without writes mode', async () => {
+  const bad = await connected({ desktop: async () => 'garbage' })
+  assert.equal((await bad.callTool({ name: 'look_at_screen', arguments: {} })).isError, true)
+  const names = await toolNames(localServer({ ...ctx(), allowWrites: false, platform: 'win32' }))
+  assert.ok(!names.includes('look_at_screen') && !names.includes('click_at'))
 })

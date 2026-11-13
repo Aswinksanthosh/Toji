@@ -7,13 +7,15 @@
 #   JARVIS_NAME     the visible name to click    (click)
 #   JARVIS_DIR      up | down                    (scroll)
 #   JARVIS_AMOUNT   wheel notches                (scroll)
+#   JARVIS_X, JARVIS_Y, JARVIS_BUTTON, JARVIS_DOUBLE   position and button      (clickat)
 #
-# Exit codes: 6 a terminal has focus (typing and clicking refused),
+# Exit codes: 8 the click position is off the screen,
+#             6 a terminal has focus (typing and clicking refused),
 #             7 nothing with that name was found, 2 unknown action.
 
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing, System.Windows.Forms
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -22,10 +24,12 @@ public class JD {
   [DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, int e);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr h, out int pid);
 }
 "@
 
+[void][JD]::SetProcessDPIAware()   # so screenshot and click positions are real pixels
 $AE = [System.Windows.Automation.AutomationElement]
 $TS = [System.Windows.Automation.TreeScope]
 
@@ -113,6 +117,45 @@ switch ($env:JARVIS_ACTION) {
     $delta = 120 * $n
     if ($env:JARVIS_DIR -eq 'down') { $delta = -$delta }
     [JD]::mouse_event(0x0800, 0, 0, $delta, 0)
+  }
+  'shot' {
+    # The main screen, shrunk to at most 1280 wide, as base64 PNG. First line: real and image size.
+    $scr = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $bmp = New-Object System.Drawing.Bitmap $scr.Width, $scr.Height
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.CopyFromScreen($scr.X, $scr.Y, 0, 0, $bmp.Size)
+    $g.Dispose()
+    $nw = $scr.Width
+    $nh = $scr.Height
+    if ($nw -gt 1280) { $nh = [int]($scr.Height * 1280 / $scr.Width); $nw = 1280 }
+    $small = New-Object System.Drawing.Bitmap $nw, $nh
+    $g2 = [System.Drawing.Graphics]::FromImage($small)
+    $g2.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g2.DrawImage($bmp, 0, 0, $nw, $nh)
+    $g2.Dispose()
+    $ms = New-Object System.IO.MemoryStream
+    $small.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+    [Console]::Out.WriteLine(("meta:{0},{1},{2},{3}" -f $scr.Width, $scr.Height, $nw, $nh))
+    [Console]::Out.WriteLine([Convert]::ToBase64String($ms.ToArray()))
+  }
+  'clickat' {
+    Assert-NotTerminal
+    $scr = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $x = [int]$env:JARVIS_X
+    $y = [int]$env:JARVIS_Y
+    if ($x -lt 0 -or $y -lt 0 -or $x -ge $scr.Width -or $y -ge $scr.Height) { [Console]::Error.WriteLine('off screen'); exit 8 }
+    [void][JD]::SetCursorPos($scr.X + $x, $scr.Y + $y)
+    Start-Sleep -Milliseconds 80
+    $down = 0x0002
+    $up = 0x0004
+    if ($env:JARVIS_BUTTON -eq 'right') { $down = 0x0008; $up = 0x0010 }
+    $times = 1
+    if ($env:JARVIS_DOUBLE -eq '1') { $times = 2 }
+    for ($i = 0; $i -lt $times; $i++) {
+      [JD]::mouse_event($down, 0, 0, 0, 0)
+      [JD]::mouse_event($up, 0, 0, 0, 0)
+      Start-Sleep -Milliseconds 60
+    }
   }
   'lock' { Start-Process rundll32.exe -ArgumentList 'user32.dll,LockWorkStation' }
   'sleep' { Start-Process rundll32.exe -ArgumentList 'powrprof.dll,SetSuspendState 0,1,0' }
