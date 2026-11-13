@@ -192,7 +192,8 @@ export function knownApps(file = join(homedir(), '.jarvis', 'apps.json')) {
   let extra = {}
   try {
     const raw = JSON.parse(readFileSync(file, 'utf8'))
-    for (const [k, v] of Object.entries(raw)) if (typeof v === 'string' && v.trim()) extra[k.toLowerCase().trim()] = v
+    // A target is opened through cmd, so anything that could chain a second command is dropped.
+    for (const [k, v] of Object.entries(raw)) if (typeof v === 'string' && v.trim() && !/[&|<>^%"\r\n]/.test(v)) extra[k.toLowerCase().trim()] = v
   } catch {
     // No custom list: the built-in names only.
   }

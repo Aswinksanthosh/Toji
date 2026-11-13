@@ -424,3 +424,20 @@ test('a launch that cannot start is reported as an error, and does not crash the
   await assert.rejects(() => runLaunch('steam://open/main'), /could not be started/)
   await assert.rejects(() => runLaunch('https://example.com', { web: true }), /could not be started/)
 })
+
+test('an apps.json entry that could chain a second command is ignored', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'jarvis-apps-'))
+  const file = join(dir, 'apps.json')
+  writeFileSync(file, JSON.stringify({
+    good: 'C:\\Tools\\Good.exe',
+    amp: 'calc.exe&calc.exe',
+    pipe: 'calc.exe|more',
+    redirect: 'calc.exe>x',
+    caret: 'ca^lc.exe',
+    percent: '%COMSPEC%',
+    quote: 'a"b',
+  }))
+  const apps = knownApps(file)
+  assert.equal(apps.good, 'C:\\Tools\\Good.exe')
+  for (const bad of ['amp', 'pipe', 'redirect', 'caret', 'percent', 'quote']) assert.equal(apps[bad], undefined, bad)
+})

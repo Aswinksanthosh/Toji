@@ -121,3 +121,29 @@ test('only the built-ins JARVIS uses are offered', () => {
   }
   assert.ok(builtinTools(true).includes('Bash'))
 })
+
+test('Jarvis settings and the Google login are off limits even when the allowed folders are widened to the home directory', () => {
+  const home = mkdtempSync(join(tmpdir(), 'jarvis-home-'))
+  const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE }
+  process.env.HOME = home
+  process.env.USERPROFILE = home
+  try {
+    mkdirSync(join(home, '.jarvis', 'workspace'), { recursive: true })
+    mkdirSync(join(home, '.jarvis', 'google'), { recursive: true })
+    mkdirSync(join(home, 'Documents'), { recursive: true })
+    const wide = { allowWrites: true, cwd: join(home, '.jarvis', 'workspace'), roots: fileRoots({ workspace: join(home, '.jarvis', 'workspace'), extra: [home] }) }
+    const ok = (path) => checkToolUse('Write', { file_path: path }, wide).allow
+    for (const secret of ['apps.json', 'games.json', 'devices.json', 'google/token.json', 'google/client.json']) {
+      assert.equal(ok(join(home, '.jarvis', secret)), false, secret)
+    }
+    assert.equal(ok(join(home, '.jarvis')), false)
+    assert.equal(ok(join(home, '.jarvis', 'workspace', 'notes.txt')), true)
+    assert.equal(ok(join(home, '.jarvis', 'workspace', 'memory', 'core.md')), true)
+    assert.equal(ok(join(home, 'Documents', 'a.txt')), true)
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+  }
+})

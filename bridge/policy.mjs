@@ -296,6 +296,12 @@ export function pathProblem(target, { cwd, roots }) {
     if (SECRET_DIRS.some((d) => rel === d || rel.startsWith(d + '/'))) {
       return `${target} holds credentials`
     }
+    // Jarvis's own settings (the app, game and device lists, the Google login) must never be
+    // editable by the model, even if the allowed folders are widened to the whole home
+    // directory: an edited app list would be a way to run a command. Only its workspace is open.
+    if ((rel === '.jarvis' || rel.startsWith('.jarvis/')) && rel !== '.jarvis/workspace' && !rel.startsWith('.jarvis/workspace/')) {
+      return `${target} holds Jarvis settings`
+    }
   }
   if (SECRET_FILES.test(basename(real))) return `${target} holds credentials`
   return null

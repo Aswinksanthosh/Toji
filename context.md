@@ -46,10 +46,11 @@ Update `context.md` in the same commit whenever a new idea comes up or anything 
 ## Known gotchas
 - Every spawned process needs an `error` handler. An unhandled spawn failure takes down the whole process (found and fixed in `runLaunch`).
 - Screenshots go to Claude or Gemini and can show private things: only on request.
+- Files under `~/.jarvis` other than `workspace/` (app, game and device lists, the Google login) are refused to the file tools even if `JARVIS_FILE_ROOTS` covers the home folder; entries in `apps.json` with `& | < > ^ %` or quotes are ignored (they are opened through cmd).
 - `npm audit --omit=dev`: after `npm audit fix` only 3 high issues remain, all in the unused Kokoro voice library (`kokoro-js`, `sharp`); no fix exists upstream. Re-run the audit now and then.
 
 ## Verify after editing
-`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (143 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
+`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (145 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
 
 ## Git
 Work on `main` of the owner's fork. One commit per change, with the attribution lines the session gives. Do not force-push without approval, and do not open a pull request unless asked.
