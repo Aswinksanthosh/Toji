@@ -34,6 +34,22 @@ Keep chat replies short. Explain only when the owner asks questions.
 ## Keep this file current (standing rule from the owner)
 Update `context.md` in the same commit whenever a new idea comes up or anything changes, even a small change: a setting, a tool, a launcher, a rule, a decision. Add new ideas to the backlog below. **Personal information never goes here.** If there is personal information to store, use the owner's private vault repo (attach it with `add_repo` only then), and not otherwise.
 
+## To do (owner's list, easiest first; tick off here, not in any doc)
+Do one at a time, in this order. Mark `[x]` when done and note any result.
+- [ ] 1. On the laptop: `git pull`, then double-click `Jarvis.cmd` (or the one for the chosen brain) and say hello. Confirms the update works.
+- [ ] 2. Replace the leaked Gemini key (make a new one, put it in `.env.local`, delete the old one).
+- [ ] 3. Turn on two-step sign-in for the Tailscale account.
+- [ ] 4. Run `Create-Shortcuts.cmd` so the launchers are on the desktop.
+- [ ] 5. Local brain check: `Jarvis-Local.cmd`, ask 3 questions, watch the GPU temperature (cap is `JARVIS_GPU_PERCENT`, default 80).
+- [ ] 6. Phone over Tailscale: `Setup-Phone.cmd`, open the page on the phone, set `JARVIS_PHONE_HOST` to the Tailscale address only.
+- [ ] 7. Sleep test: plug in, sleep the laptop, see if the phone page still loads (decides whether Wake-on-LAN is needed).
+- [ ] 8. Screen vision and Gemini app reading (`look_at_screen`, `ask_gemini`).
+- [ ] 9. Steam: fill `~/.jarvis/games.json`, test launching one game.
+- [ ] 10. Remote buttons: `Setup-Remote.cmd` on each laptop, test from the phone.
+- [ ] 11. Wake-on-LAN helper (only if step 7 says it is needed).
+- [ ] 12. Try `qwen3:8b` as the local model.
+- [ ] 13. Build items from the backlog below (click allow-list, auto fallback to local, memory purge, HTTPS and phone mic, offline voice).
+
 ## Backlog (ideas, not built yet)
 - Turn the laptop on from the phone: the wake sender and the no-AI remote page are built (`README-wake.md`, `README-remote.md`) but untested on real hardware. Open: finding out whether the laptops stay reachable in Modern Standby (then no wake is needed), and what always-on device can host the hub. Fallbacks: smart plug plus a BIOS "power on when AC attached" option, or leaving the laptop on.
 - Steam: a gaming power or graphics profile switch. Decided: no timer, the owner sends the command; two laptops each keep their own Steam login (Jarvis never handles Steam passwords or switches accounts).
