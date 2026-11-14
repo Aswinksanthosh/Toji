@@ -49,6 +49,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - [ ] 8. Screen vision and Gemini app reading (`look_at_screen`, `ask_gemini`).
 - [ ] 9. Steam: fill `~/.jarvis/games.json`, test launching one game.
 - Decision: owner keeps the laptop awake and plugged in (battery capped at 80%), screen off, lid does nothing, because a sleeping laptop is unreachable and a shut-down one cannot be started remotely. No Telegram queue, no Wake-on-LAN for now. Jarvis (AI/local model) is never auto-started because it uses graphics memory that games need.
+- Test result: remote buttons Steam, Big Picture and PUBG (id 578080 in `games.json`) all launched from the phone over Tailscale. Open issue: the laptop froze and showed 'ran into a problem' around then; cause unknown, checking the System event log (ids 41, 1001), not caused by the buttons as far as known. Do not start the game again until understood.
 - [ ] 10. Remote buttons (one laptop, `devices.json` entry with only `agent: http://127.0.0.1:8790`, then `Autostart-Remote.cmd`): `Setup-Remote.cmd` on each laptop, test from the phone.
 - [ ] 11. Wake-on-LAN helper (only if step 7 says it is needed).
 - [ ] 12. Try `qwen3:8b` as the local model.
