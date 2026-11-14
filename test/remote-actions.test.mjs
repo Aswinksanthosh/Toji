@@ -266,7 +266,7 @@ test('info works with no Steam and no model (other systems, or a slow answer)', 
 
 function lab(over = {}) {
   const files = new Map()
-  const calls = { run: [], timers: [], cleared: [], launch: [] }
+  const calls = { run: [], launch: [] }
   const base = {
     root: ROOT,
     launch: async (t) => calls.launch.push(t),
@@ -277,46 +277,12 @@ function lab(over = {}) {
     artDir: 'art',
     readText: (f) => { if (files.has(f)) return files.get(f); throw new Error('missing') },
     writeAtomic: (f, text) => files.set(f, text),
-    setTimer: (fn, ms) => { const t = { fn, ms, unref() {} }; calls.timers.push(t); return t },
-    clearTimer: (t) => calls.cleared.push(t),
-    focusDelayMs: 120_000,
     capEnabled: true,
     run: async (file, args) => { calls.run.push([file, args]); return '' },
   }
   const actions = createRemoteActions({ ...base, ...over })
   return { actions, files, calls }
 }
-
-test('after starting a game, the game window is brought to the front 2 minutes later; a new start replaces the timer', async () => {
-  const { actions, calls } = lab()
-  assert.match(await actions.run('steam_game', 'pubg'), /bring the game to the front in 2 minutes/)
-  assert.equal(calls.timers[0].ms, 120_000)
-  assert.equal(calls.run.length, 0)
-  calls.timers[0].fn()
-  await new Promise((r) => setImmediate(r))
-  assert.match(decode(calls.run[0][1]), /SetForegroundWindow/)
-  assert.match(decode(calls.run[0][1]), /steamapps\\common/)
-  await actions.run('steam_game', 'pubg')
-  await actions.run('steam_game', 'pubg')
-  assert.equal(calls.cleared.length, 1)
-})
-
-test('the delay can be turned off, and a failed focus never crashes the agent', async () => {
-  const off = lab({ focusDelayMs: 0 })
-  assert.doesNotMatch(await off.actions.run('steam_game', 'pubg'), /front/)
-  assert.equal(off.calls.timers.length, 0)
-  const failing = lab({ run: async () => { throw new Error('boom') } })
-  await failing.actions.run('steam_game', 'pubg')
-  failing.calls.timers[0].fn()
-  await new Promise((r) => setImmediate(r))
-})
-
-test('show game focuses the biggest Steam game window and says what it found', async () => {
-  assert.equal(await lab({ run: async () => 'ok|PUBG\r\n' }).actions.run('game_focus'), 'Showing PUBG.')
-  assert.match(await lab({ run: async () => 'noproc\r\n' }).actions.run('game_focus'), /No running game was found in a Steam library folder/)
-  assert.match(await lab({ run: async () => 'nowindow|TslGame, BEService\r\n' }).actions.run('game_focus'), /Found the game \(TslGame, BEService\) but it has no window/)
-  assert.match(await lab({ run: async () => '' }).actions.run('game_focus'), /No running game was found/)
-})
 
 test('gaming mode sets the Windows power mode and turns the graphics cap on; power saving and balanced turn it off', async () => {
   const { actions, calls, files } = lab()
@@ -633,24 +599,15 @@ test('info lists the remembered accounts without their login names, and the sign
   assert.doesNotMatch(JSON.stringify(info), /mainacct|second_acct|RememberPassword/)
 })
 
-test('games are found through WMI by their folder, so a game guarded by an anti-cheat is still found', async () => {
+test('Close game finds games through WMI by their folder, so a game guarded by an anti-cheat is still found', async () => {
   const scripts = []
-  const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', run: async (f, args) => { scripts.push(decode(args)); return 'ok|TslGame\r\n' } })
-  assert.equal(await a.run('game_focus'), 'Showing TslGame.')
-  const focus = scripts[0]
-  assert.match(focus, /Get-CimInstance Win32_Process/)
-  assert.match(focus, /\$_\.ExecutablePath -like '\*\\steamapps\\common\\\*'/)
-  assert.match(focus, /EnumWindows/)
-  assert.match(focus, /Biggest\(\[uint32\[\]\]/)
-  assert.match(focus, /SetForegroundWindow/)
-  // no step depends on reading a protected game's path or main-window flag through Get-Process
-  assert.doesNotMatch(focus, /Get-Process[^\n]*Path/)
-  assert.doesNotMatch(focus, /MainWindowHandle/)
+  const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', run: async (f, args) => { scripts.push(decode(args)); return 'TslGame\r\n' } })
   await a.run('close_game')
-  assert.match(scripts[1], /Get-CimInstance Win32_Process/)
-  assert.doesNotMatch(scripts[1], /Get-Process -ErrorAction SilentlyContinue \| Where-Object \{ \$_\.Path/)
+  assert.match(scripts[0], /Get-CimInstance Win32_Process/)
+  assert.match(scripts[0], /\$_\.ExecutablePath -like '\*\\steamapps\\common\\\*'/)
+  // no step depends on reading a protected game's path through Get-Process
+  assert.doesNotMatch(scripts[0], /Get-Process -ErrorAction SilentlyContinue \| Where-Object \{ \$_\.Path/)
 })
-
 test('close game says what it closed and what refused to close', async () => {
   const run = (out) => createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', run: async () => out })
   assert.equal(await run('').run('close_game'), 'No Steam game is running.')

@@ -82,7 +82,6 @@ export const REMOTE_ACTIONS = [
   'status',
   'app',
   'button',
-  'game_focus',
   'mode_saver',
   'mode_balanced',
   'mode_gaming',
@@ -188,49 +187,6 @@ const MODES = {
   gaming: { name: 'Gaming', overlay: 'OVERLAY_SCHEME_MAX', plan: '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c', cap: true },
 }
 export const GOVERNOR_TASK = 'Jarvis GPU Governor'
-
-const FOCUS_GAME = String.raw`Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public class W2 {
-  public delegate bool EnumProc(IntPtr h, IntPtr l);
-  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc p, IntPtr l);
-  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
-  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
-  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
-  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
-  [DllImport("user32.dll")] public static extern void keybd_event(byte b, byte s, uint f, UIntPtr e);
-  public struct RECT { public int L, T, R, B; }
-  public static uint PidOf(IntPtr h) { uint pid; GetWindowThreadProcessId(h, out pid); return pid; }
-  public static IntPtr Biggest(uint[] pids) {
-    IntPtr best = IntPtr.Zero; long area = 0;
-    EnumWindows(delegate (IntPtr h, IntPtr l) {
-      if (!IsWindowVisible(h)) return true;
-      if (Array.IndexOf(pids, PidOf(h)) < 0) return true;
-      RECT r; GetWindowRect(h, out r);
-      long a = (long)(r.R - r.L) * (r.B - r.T);
-      if (a > area) { area = a; best = h; }
-      return true;
-    }, IntPtr.Zero);
-    return best;
-  }
-}
-'@
-$procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like '*\steamapps\common\*' })
-if ($procs.Count) {
-  $h = [W2]::Biggest([uint32[]]@($procs | ForEach-Object { [uint32]$_.ProcessId }))
-  if ($h -ne [IntPtr]::Zero) {
-    [W2]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero); [W2]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
-    [W2]::ShowWindow($h, 9) | Out-Null
-    [W2]::SetForegroundWindow($h) | Out-Null
-    $wp = [W2]::PidOf($h)
-    'ok|' + [IO.Path]::GetFileNameWithoutExtension(($procs | Where-Object { $_.ProcessId -eq $wp } | Select-Object -First 1).Name)
-  } else {
-    'nowindow|' + (($procs | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_.Name) } | Sort-Object -Unique | Select-Object -First 3) -join ', ')
-  }
-} else { 'noproc' }
-}`
 
 const startAppScript = (name, exact) => String.raw`$n = ${psQuote(name)}
 $a = Get-StartApps | Where-Object { ${exact ? '$_.Name -eq $n' : '$_.Name -like $n'} } | Select-Object -First 1
@@ -338,9 +294,6 @@ export function createRemoteActions({
   artDir = join(homedir(), '.jarvis', 'art'),
   targetC = Number(process.env.JARVIS_GPU_TARGET_C) || 70,
   capEnabled = process.env.JARVIS_REMOTE_CAP === '1',
-  focusDelayMs = Number(process.env.JARVIS_GAME_FOCUS_SECONDS ?? 120) * 1000,
-  setTimer = setTimeout,
-  clearTimer = clearTimeout,
   readText = (file) => readFileSync(file, 'utf8'),
   readBytes = (file) => readFileSync(file),
   fileSize = (file) => statSync(file).size,
@@ -387,11 +340,8 @@ export function createRemoteActions({
         const url = gameUrl(arg)
         if (!url) throw new Error('That game is not in games.json on this laptop.')
         await launch(url)
-        const wait = focusDelayMs > 0 ? scheduleFocus() : ''
-        return `Starting ${arg}. It can take a minute to reach the menu.${wait}`
+        return `Starting ${arg}. It can take a minute to reach the menu.`
       }
-      case 'game_focus':
-        return focusGame()
       case 'mode_saver':
       case 'mode_balanced':
       case 'mode_gaming':
@@ -484,26 +434,7 @@ export function createRemoteActions({
     }
   }
 
-  // -- game window, power modes and the graphics temperature cap --------------------------
-
-  let focusTimer = null
-  function scheduleFocus() {
-    if (focusTimer) clearTimer(focusTimer)
-    focusTimer = setTimer(() => {
-      focusTimer = null
-      ps(FOCUS_GAME).catch(() => {})
-    }, focusDelayMs)
-    focusTimer?.unref?.()
-    const min = focusDelayMs / 60_000
-    return ` I will bring the game to the front in ${Number.isInteger(min) ? min : min.toFixed(1)} minute${min === 1 ? '' : 's'}.`
-  }
-
-  async function focusGame() {
-    const [kind, name] = ((await ps(FOCUS_GAME)).trim().split(/\r?\n/).at(-1) ?? '').split('|')
-    if (kind === 'ok' && name) return `Showing ${name.slice(0, 40)}.`
-    if (kind === 'nowindow') return `Found the game (${String(name ?? '').slice(0, 60)}) but it has no window to show yet.`
-    return 'No running game was found in a Steam library folder.'
-  }
+  // -- power modes and the graphics temperature cap (not shown on the page) --------------
 
   const clampTarget = (n) => Math.min(Math.max(Math.round(Number(n) || 70), 60), 85)
   function readState() {

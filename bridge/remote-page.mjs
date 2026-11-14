@@ -523,9 +523,8 @@ function drawPanel(d,anim){
   const steamBtn=el('button','b','Steam');steamBtn.disabled=c
   slideMenu(steamBtn,()=>[
     {label:'Big Picture',run:()=>act(n,'steam_bigpicture')},
-    {label:'Show game',hint:'bring the running game to the front',run:()=>act(n,'game_focus')},
     {label:'Close game',hint:'closes the running game',danger:true,run:()=>act(n,'close_game')}],{tap:()=>act(n,'steam_open')})
-  const s1=el('div','row');s1.append(steamBtn,go('Big Picture','steam_bigpicture'),go('Show game','game_focus'))
+  const s1=el('div','row');s1.append(steamBtn,go('Big Picture','steam_bigpicture'))
   const ban=el('div','gbanner'),gimg=el('div','gimg');gimg.dataset.key=gaKey(n,picked[n])
   const chip=el('button','gchip','Change picture');chip.addEventListener('click',()=>pickPicture(picked[n]))
   const gdd=dropdown(games,picked[n],v=>{picked[n]=v;gimg.dataset.key=gaKey(n,v);gimg.style.backgroundImage='';paintGame(gaKey(n,v));ensureGameArt(d,v)},c||!games.length,o=>gaKey(n,o))

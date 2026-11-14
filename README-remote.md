@@ -45,9 +45,6 @@ The page shows one laptop at a time. A switch bar at the bottom has one button p
 ### Your own background pictures
 Put a picture at `C:\Users\<you>\.jarvis\art\rog.jpg` and/or `tuf.jpg` on the laptop that runs the phone page (the one with the password). PNG, JPG and WEBP work, up to 3 MB. It replaces the drawn character behind that laptop's mood, and it is only sent to the phone after the password. Use art you are allowed to use; the built-in characters are original drawings made for this project.
 
-## After you start a game
-Starting a game from the page brings its window to the front 2 minutes later (it waits until the game has loaded). A new start replaces the timer. Change the wait with `JARVIS_GAME_FOCUS_SECONDS` (0 turns it off). The **Show game** button does it right now. It picks the biggest window of a program inside a `steamapps\common` folder.
-
 ## Modes (not on the page)
 The Power saving, Balanced and Gaming section was removed from the page at the owner's request: performance profiles are set in Armoury Crate instead (link each game to a profile in its scenario profiles). The agent still understands the old `mode_*` and `cap_*` actions and the optional `Setup-Governor.cmd` cap exists, but nothing on the page uses them.
 
@@ -81,7 +78,7 @@ The risky buttons (Lock, Close game, Stop Ollama, Game mode, Restart, Sleep, Upd
 ## Hold and slide menus
 Some buttons carry a small corner mark: **press and hold, slide to an option, let go to pick it.**
 - **Power icon** (next to Wake): hold it and slide to Lock, Screen off, Cancel turn off, Restart, Sleep or Turn off. Let go anywhere else to cancel. Turn off still asks for the password.
-- **Steam**: a quick tap opens Steam as before; hold and slide for Big Picture, Show game or Close game.
+- **Steam**: a quick tap opens Steam as before; hold and slide for Big Picture or Close game.
 - A quick tap on the power icon opens the same menu so you can tap an option instead (works with a mouse too). Keyboard: Enter opens it, arrows move, Enter picks, Escape closes.
 The page does not redraw while a menu, hold or drop-down is in use, so nothing moves under your finger.
 
