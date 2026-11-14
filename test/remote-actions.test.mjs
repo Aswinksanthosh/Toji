@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
-import { APPS, REMOTE_ACTIONS, START_APPS, cleanModel, createRemoteActions, explainGit, knownButtons, knownRemoteApps, parseSteamAccounts, parseSteamLogin, parseSteamUser, runCommand, setMostRecent } from '../bridge/remote-actions.mjs'
+import { APPS, REMOTE_ACTIONS, START_APPS, cleanModel, createRemoteActions, explainGit, knownButtons, knownRemoteApps, parseSteamAccounts, parseSteamLogin, parseSteamUser, parseSteamUsers, runCommand, setMostRecent, steamIdFromAccountNumber } from '../bridge/remote-actions.mjs'
 
 const ROOT = 'C:\\Users\\me\\Toji'
 
@@ -771,4 +771,69 @@ test('a step that fails is logged, stops the switch, and never crashes the agent
   })
   await noLog.run('steam_switch', '76561198000000002')
   await assert.doesNotReject(noLog.settled())
+})
+
+const accountNumberHex = (id) => '0x' + (BigInt(id) - 76561197960265728n).toString(16)
+
+function activeLab(activeId, over = {}) {
+  const logs = []
+  const calls = []
+  const a = createRemoteActions({
+    root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32',
+    run: async (f, args) => {
+      calls.push([f, ...args])
+      const joined = args.join(' ')
+      if (f === 'reg.exe' && joined.includes('SteamPath')) return '    SteamPath    REG_SZ    c:/steam\r\n'
+      if (f === 'reg.exe' && joined.includes('ActiveUser')) return activeId ? `    ActiveUser    REG_DWORD    ${accountNumberHex(activeId)}\r\n` : '    ActiveUser    REG_DWORD    0x0\r\n'
+      if (f === 'tasklist.exe') return 'INFO: No tasks are running which match the specified criteria.'
+      return ''
+    },
+    readText: (f) => (f.endsWith('loginusers.vdf') ? VDF2 : (() => { throw new Error('none') })()),
+    writeAtomic: () => {}, spawnFn: () => { const c = new EventEmitter(); c.unref = () => {}; return c },
+    sleep: async () => {}, appendLog: (f, text) => logs.push(text), ...over,
+  })
+  return { a, logs, calls }
+}
+
+test('Steam account numbers convert to the 17-digit id, and nonsense gives nothing', () => {
+  assert.equal(steamIdFromAccountNumber(39734273), '76561198000000001')
+  assert.equal(steamIdFromAccountNumber('39734274'), '76561198000000002')
+  for (const bad of [0, -5, 1.5, NaN, 'x', null, undefined]) assert.equal(steamIdFromAccountNumber(bad), '', String(bad))
+  assert.deepEqual(parseSteamUsers(VDF2).map((u) => u.id), ['76561198000000001', '76561198000000002', '76561198000000003', '76561198000000004'])
+})
+
+test('who is signed in comes from the account Steam really has open, not only from the flag in the file', async () => {
+  // the file flags "Main Player" as the most recent, but Steam really has "Second Player" open
+  const real = (await activeLab('76561198000000002').a.info()).steam
+  assert.equal(real.user, 'Second Player')
+  assert.equal(real.id, '76561198000000002')
+  // nobody signed in (0): the flag in the file is used
+  const none = (await activeLab(null).a.info()).steam
+  assert.equal(none.user, 'Main Player')
+  assert.equal(none.id, '76561198000000001')
+  // an open account that is not in the file at all: fall back to the flag
+  const odd = (await activeLab('76561198099999999').a.info()).steam
+  assert.equal(odd.user, 'Main Player')
+})
+
+test('asking for the account the file flags, while Steam really has another open, now switches instead of saying it is already signed in', async () => {
+  const { a, logs, calls } = activeLab('76561198000000002')
+  assert.match(await a.run('steam_switch', '76561198000000001'), /Switching Steam to Main Player/)
+  await a.settled()
+  assert.ok(calls.some((c) => c.join(' ').includes('AutoLoginUser /t REG_SZ /d mainacct')))
+  assert.ok(logs.join('').includes('signed in now: Second Player (from registry ActiveUser)'))
+})
+
+test('every switch request leaves a log line, even when it stops early', async () => {
+  const same = activeLab('76561198000000002')
+  assert.match(await same.a.run('steam_switch', '76561198000000002'), /already signed in/)
+  const log1 = same.logs.join('')
+  assert.ok(log1.includes('switch requested; signed in now: Second Player'))
+  assert.ok(log1.includes('nothing to do: Second Player is already signed in'))
+  const bad = activeLab('76561198000000002')
+  await assert.rejects(bad.a.run('steam_switch', '76561198000000003'), /not an account this laptop stays signed in to/)
+  const log2 = bad.logs.join('')
+  assert.ok(log2.includes('switch requested'))
+  assert.ok(log2.includes('refused: that is not an account'))
+  assert.doesNotMatch(log1 + log2, /mainacct|second_acct|forgotten/)
 })

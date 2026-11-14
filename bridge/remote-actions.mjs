@@ -267,6 +267,22 @@ export function parseSteamLogin(vdf) {
 }
 export const parseSteamUser = (vdf) => parseSteamLogin(vdf).name
 
+/** Every account in loginusers.vdf: { id, name }. */
+export function parseSteamUsers(vdf) {
+  const out = []
+  for (const m of String(vdf ?? '').matchAll(/"(\d{17})"\s*\{([^}]*)\}/g)) {
+    const field = (k) => new RegExp(`"${k}"\\s+"([^"]*)"`, 'i').exec(m[2])?.[1]
+    out.push({ id: m[1], name: (field('PersonaName') || field('AccountName') || '').slice(0, 40) })
+  }
+  return out
+}
+
+/** Steam keeps the account that is signed in right now as a small number; the 17-digit id is that number plus a fixed offset. */
+export function steamIdFromAccountNumber(n) {
+  const num = Number(n)
+  return Number.isInteger(num) && num > 0 ? String(76561197960265728n + BigInt(num)) : ''
+}
+
 /**
  * Moves the "MostRecent" flag in loginusers.vdf to one account (1 for it, 0 for the others).
  * Only those flags change; if the chosen account has no such line, one is added. Everything else is kept as it is.
@@ -614,8 +630,15 @@ export function createRemoteActions({
     const steam = await steamInfo()
     const wanted = String(id ?? '').trim()
     const target = /^\d{17}$/.test(wanted) ? steam?.accounts?.find((a) => a.id === wanted) : null
-    if (!target) throw new Error('That is not an account this laptop stays signed in to.')
-    if (target.id === steam.id) return `${target.name} is already signed in.`
+    note(`switch requested; signed in now: ${steam?.user || 'nobody'} (from ${steam?.how ?? 'unknown'}); remembered accounts: ${steam?.accounts?.length ?? 0}`)
+    if (!target) {
+      note('refused: that is not an account this laptop stays signed in to')
+      throw new Error('That is not an account this laptop stays signed in to.')
+    }
+    if (target.id === steam.id) {
+      note(`nothing to do: ${target.name} is already signed in`)
+      return `${target.name} is already signed in.`
+    }
     // Answer at once; the steps run in the background and write their progress to the log.
     switching = runSwitch(steam, target).catch((err) => note(`STOPPED: ${err.message}`))
     return `Switching Steam to ${target.name}. Steam closes and starts again: about 30 seconds. If nothing changes, the steps are written to .jarvis\\steam-switch.log on that laptop.`
@@ -695,7 +718,21 @@ export function createRemoteActions({
       const path = regValue(await run('reg.exe', ['query', key, '/v', 'SteamPath']), 'SteamPath') || 'C:\\Program Files (x86)\\Steam'
       const vdf = readText(join(path, 'config', 'loginusers.vdf'))
       const login = parseSteamLogin(vdf)
-      const user = login.name
+      let user = login.name
+      let signedId = login.id
+      let how = 'flag in loginusers.vdf'
+      try {
+        const active = Number.parseInt(regValue(await run('reg.exe', ['query', `${key}\\ActiveProcess`, '/v', 'ActiveUser']), 'ActiveUser'), 16)
+        const realId = steamIdFromAccountNumber(active)
+        const found = realId ? parseSteamUsers(vdf).find((u) => u.id === realId) : null
+        if (found) {
+          user = found.name
+          signedId = found.id
+          how = 'registry ActiveUser'
+        }
+      } catch {
+        // Steam is not signed in, or the value is missing: the flag in the file is the best guess.
+      }
       let playing = ''
       try {
         const id = Number.parseInt(regValue(await run('reg.exe', ['query', key, '/v', 'RunningAppID']), 'RunningAppID'), 16)
@@ -703,7 +740,7 @@ export function createRemoteActions({
       } catch {
         // Not running a game, or the value is missing.
       }
-      return { user, playing, id: login.id, path, accounts: parseSteamAccounts(vdf) }
+      return { user, playing, id: signedId, how, path, accounts: parseSteamAccounts(vdf) }
     } catch {
       return null
     }
