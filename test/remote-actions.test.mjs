@@ -32,6 +32,7 @@ function setup(over = {}) {
     exists: () => true,
     platform: 'win32',
     uptimeFn: () => 7500,
+    capEnabled: true,
     ...over.extra,
   })
   return { actions, calls }
@@ -205,7 +206,7 @@ test('info lists games, button names, apps, the model and the Steam user with th
   const a = createRemoteActions({
     root: ROOT, launch: async () => {}, desktop: async () => {}, games: () => ['pubg'], gameIds: () => ({ pubg: '578080' }),
     buttonsFile, run, platform: 'win32', readText: (f) => { if (f.endsWith('loginusers.vdf')) { read.push(f); return VDF } throw new Error('no state') },
-    exists: () => false, stateFile: 'state.json',
+    exists: () => false, stateFile: 'state.json', capEnabled: true,
   })
   const info = await a.info()
   assert.deepEqual(info, {
@@ -217,7 +218,7 @@ test('info lists games, button names, apps, the model and the Steam user with th
 })
 
 test('info works with no Steam and no model (other systems, or a slow answer)', async () => {
-  const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux', stateFile: 'none.json', readText: () => { throw new Error('none') } })
+  const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux', capEnabled: true, stateFile: 'none.json', readText: () => { throw new Error('none') } })
   assert.deepEqual(await a.info(), { games: [], buttons: [], apps: ['discord', 'spotify', 'epic'], model: '', steam: null, mode: '', cap: { on: false, target: 70 }, governor: false })
   const b = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, run: async () => { throw new Error('x') }, platform: 'win32' })
   const info = await b.info()
@@ -243,6 +244,7 @@ function lab(over = {}) {
     setTimer: (fn, ms) => { const t = { fn, ms, unref() {} }; calls.timers.push(t); return t },
     clearTimer: (t) => calls.cleared.push(t),
     focusDelayMs: 120_000,
+    capEnabled: true,
     run: async (file, args) => { calls.run.push([file, args]); return '' },
   }
   const actions = createRemoteActions({ ...base, ...over })
@@ -362,4 +364,16 @@ test('the Steam login gives the id too, and the profile picture is yours first, 
   sizes['art/avatar.jpg'] = 5 * 1024 * 1024
   assert.equal(String((await a.avatar()).bytes), 'c:/steam/config/avatarcache/76561198000000002.png')
   void png
+})
+
+test('by default the remote does not run its own graphics cap, so it never fights a profile you set in Armoury Crate', async () => {
+  const { actions, files, calls } = lab({ capEnabled: false })
+  assert.equal(await actions.run('mode_gaming'), 'Gaming mode: Windows power mode set.')
+  assert.deepEqual(JSON.parse(files.get('state.json')), { enabled: false, target: 70, mode: 'gaming' })
+  assert.ok(!calls.run.some((c) => c[0] === 'schtasks.exe'))
+  await assert.rejects(actions.run('cap_on'), /JARVIS_REMOTE_CAP=1/)
+  await assert.rejects(actions.run('cap_off'), /JARVIS_REMOTE_CAP=1/)
+  const info = await actions.info()
+  assert.equal(info.cap, null)
+  assert.equal(info.governor, false)
 })

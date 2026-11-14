@@ -318,10 +318,13 @@ function drawPanel(d,anim){
   const modes=el('div','glass modes');modes.append(el('h3','','MODE'))
   const segs=el('div','segs')
   for(const [k,label] of [['saver','Power saving'],['balanced','Balanced'],['gaming','Gaming']])segs.append(go(label,'mode_'+k,undefined,undefined,'seg'+(d.mode===k?' active':'')))
-  const cap=d.cap||{on:false,target:70},capline=el('div','capline')
-  capline.append(el('span','','GPU temperature cap '+cap.target+' °C'),go(cap.on?'On':'Off',cap.on?'cap_off':'cap_on',undefined,undefined,cap.on?'active':''))
-  modes.append(segs,capline)
-  if(d.awake&&d.governor===false)modes.append(el('div','hint','The cap needs Setup-Governor.cmd, run once as administrator (see README-remote).'))
+  modes.append(segs)
+  if(d.cap){
+    const capline=el('div','capline')
+    capline.append(el('span','','GPU temperature cap '+d.cap.target+' °C'),go(d.cap.on?'On':'Off',d.cap.on?'cap_off':'cap_on',undefined,undefined,d.cap.on?'active':''))
+    modes.append(capline)
+    if(d.awake&&d.governor===false)modes.append(el('div','hint','The cap needs Setup-Governor.cmd, run once as administrator (see README-remote).'))
+  }
   const steam=el('div','steam');steam.append(el('h3','','STEAM'))
   const head=el('div','sh'),txt=el('div','txt')
   if(d.steam&&d.steam.user){

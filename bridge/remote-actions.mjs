@@ -196,6 +196,7 @@ export function createRemoteActions({
   stateFile = join(homedir(), '.jarvis', 'gpu-governor.json'),
   artDir = join(homedir(), '.jarvis', 'art'),
   targetC = Number(process.env.JARVIS_GPU_TARGET_C) || 70,
+  capEnabled = process.env.JARVIS_REMOTE_CAP === '1',
   focusDelayMs = Number(process.env.JARVIS_GAME_FOCUS_SECONDS ?? 120) * 1000,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
@@ -250,6 +251,7 @@ export function createRemoteActions({
         return setMode(action.slice(5))
       case 'cap_on':
       case 'cap_off': {
+        if (!capEnabled) throw new Error('The software graphics cap is off on this laptop. Set JARVIS_REMOTE_CAP=1 to use it.')
         const state = readState()
         writeState({ ...state, enabled: action === 'cap_on' })
         return `Graphics cap ${action === 'cap_on' ? `on (${clampTarget(targetC)} °C)` : 'off'}.${await governorNote()}`
@@ -367,8 +369,10 @@ export function createRemoteActions({
         await run('powercfg.exe', ['/setactive', copy])
       }
     }
-    writeState({ enabled: m.cap, mode })
-    return `${m.name} mode.${m.cap ? ` Graphics temperature cap ${clampTarget(targetC)} °C is on.${await governorNote()}` : ' Graphics temperature cap is off.'}`
+    const cap = m.cap && capEnabled
+    writeState({ enabled: cap, mode })
+    if (!capEnabled) return `${m.name} mode: Windows power mode set.`
+    return `${m.name} mode.${cap ? ` Graphics temperature cap ${clampTarget(targetC)} °C is on.${await governorNote()}` : ' Graphics temperature cap is off.'}`
   }
 
   async function statusText() {
@@ -474,8 +478,8 @@ export function createRemoteActions({
         model,
         steam: steam ? { user: steam.user, playing: steam.playing, avatar: Boolean(avatarFile(steam)) } : null,
         mode: state.mode,
-        cap: { on: state.enabled, target: clampTarget(targetC) },
-        governor: await governorInstalled(),
+        cap: capEnabled ? { on: state.enabled, target: clampTarget(targetC) } : null,
+        governor: capEnabled ? await governorInstalled() : false,
       }
     },
     avatar,
