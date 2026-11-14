@@ -45,6 +45,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - [ ] 6. Phone over Tailscale: `Setup-Phone.cmd`, open the page on the phone, set `JARVIS_PHONE_HOST` to the Tailscale address only.
 - Finding: the owner's laptop reports `Standby (S0 Low Power Idle) Network Connected` (Modern Standby, Wi-Fi only, one laptop, no helper device). Plan: set `CONNECTIVITYINSTANDBY` to 1 on AC (admin `powercfg`), then run step 7.
 - [x] 7. Sleep test RESULT: with `CONNECTIVITYINSTANDBY=1` on AC, the phone page did NOT load while the laptop slept (no connection). So a sleeping laptop is unreachable. Options: keep it awake with the screen off (lid does nothing), or test Wake-on-LAN over Wi-Fi from a phone app on the home network. Original step:  plug in, sleep the laptop, see if the phone page still loads (decides whether Wake-on-LAN is needed).
+- Always-on setup (replaces wake): lid does nothing and no sleep on AC, screen off after 1 minute, power mode Best power efficiency, charge limit 80% in the maker's app (brand not yet known). Hibernate is not an option (an off laptop cannot be reached).
 - [ ] 8. Screen vision and Gemini app reading (`look_at_screen`, `ask_gemini`).
 - [ ] 9. Steam: fill `~/.jarvis/games.json`, test launching one game.
 - [ ] 10. Remote buttons: `Setup-Remote.cmd` on each laptop, test from the phone.
