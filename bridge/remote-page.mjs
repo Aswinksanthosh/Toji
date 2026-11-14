@@ -243,6 +243,7 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:14
 .msg.show{opacity:1;transform:none}
 .msg.err{color:#ffc1b6;border-color:rgba(255,140,120,.5);background:rgba(20,6,4,.92)}
 #login{margin:22vh auto 0;width:min(360px,88vw);display:flex;flex-direction:column;gap:12px;animation:up .5s ease both}
+#login label{font-size:.8rem;letter-spacing:.12em;text-transform:uppercase;color:#a9bcc5}
 #login input,#askpw{font:inherit;color:#fff;background:rgba(8,18,26,.8);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
 #lerr,#askerr{color:#ffc1b6}
 .ask{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px;animation:up .25s ease both}
@@ -258,8 +259,10 @@ body[data-theme] .b.danger,body[data-theme] .askbox .b.danger{background:linear-
 <div class="art rog">${ART_ROG}</div><div class="art tuf">${ART_TUF}</div>
 <div class="fx rog">${petals}</div><div class="fx tuf">${embers}</div>
 <header>REMOTE</header>
-<form id="login" autocomplete="off"><label for="pw">Password</label>
-<input id="pw" type="password" autocomplete="current-password" required><button class="b">Unlock</button><div id="lerr"></div></form>
+<form id="login" autocomplete="on" method="post"><label for="user">Name</label>
+<input id="user" name="username" type="text" value="remote" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next">
+<label for="pw">Password</label>
+<input id="pw" name="password" type="password" autocomplete="current-password" required enterkeyhint="go"><button class="b">Unlock</button><div id="lerr"></div></form>
 <input type="file" id="pick" accept="image/*" hidden>
 <div id="ask" class="ask" hidden><form id="askform" class="askbox" autocomplete="off">
 <h2 id="asktitle">Turn off?</h2><p id="asktext"></p>

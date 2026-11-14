@@ -585,3 +585,16 @@ test('the page opens another laptop\'s own remote when its tab is tapped, and ne
   for (const part of ['function foreign(', 'location.href=target.page', 'new URL(d.page).origin!==location.origin', "' ext'", 'Opens its own remote']) assert.ok(html.includes(part), part)
   assert.doesNotMatch(html, /innerHTML|eval\(|style="/)
 })
+
+test('the sign-in form has a username field before the password, so phone password managers (iPhone) can save it; only the password is sent', async (t) => {
+  const h = await hub()
+  t.after(() => h.close())
+  const html = await (await fetch(h.url + '/')).text()
+  const form = html.slice(html.indexOf('<form id="login"'), html.indexOf('</form>', html.indexOf('<form id="login"')))
+  const user = form.indexOf('autocomplete="username"')
+  const pass = form.indexOf('autocomplete="current-password"')
+  assert.ok(user > 0 && pass > user, 'username field comes first')
+  for (const part of ['name="username"', 'type="text"', 'value="remote"', 'name="password"', 'type="password"', 'autocapitalize="none"']) assert.ok(form.includes(part), part)
+  // the username is never a secret and never sent: the login call carries the password only
+  assert.ok(html.includes("api('/login',{password:$('pw').value})"))
+})
