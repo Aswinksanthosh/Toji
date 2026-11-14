@@ -598,3 +598,15 @@ test('the sign-in form has a username field before the password, so phone passwo
   // the username is never a secret and never sent: the login call carries the password only
   assert.ok(html.includes("api('/login',{password:$('pw').value})"))
 })
+
+test('the sign-in form is inserted when needed and removed after a successful sign-in (so iPhone offers to save the password)', async (t) => {
+  const h = await hub()
+  t.after(() => h.close())
+  const html = await (await fetch(h.url + '/')).text()
+  for (const part of ['<template id="loginTpl">', '<div id="loginSlot"></div>', 'function showLogin(', 'function hideLogin(', 'f.remove()', "$('loginSlot').addEventListener('submit'", 'cloneNode(true)']) assert.ok(html.includes(part), part)
+  // the form is only inside the template: nothing live in the page before the script runs
+  const before = html.slice(0, html.indexOf('<template id="loginTpl">'))
+  assert.doesNotMatch(before, /<form id="login"/)
+  // the typed password is not wiped before the form goes away
+  assert.doesNotMatch(html.slice(html.indexOf("$('loginSlot').addEventListener")), /\$\('pw'\)\.value=''/)
+})

@@ -259,10 +259,11 @@ body[data-theme] .b.danger,body[data-theme] .askbox .b.danger{background:linear-
 <div class="art rog">${ART_ROG}</div><div class="art tuf">${ART_TUF}</div>
 <div class="fx rog">${petals}</div><div class="fx tuf">${embers}</div>
 <header>REMOTE</header>
-<form id="login" autocomplete="on" method="post"><label for="user">Name</label>
+<div id="loginSlot"></div>
+<template id="loginTpl"><form id="login" autocomplete="on" method="post"><label for="user">Name</label>
 <input id="user" name="username" type="text" value="remote" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next">
 <label for="pw">Password</label>
-<input id="pw" name="password" type="password" autocomplete="current-password" required enterkeyhint="go"><button class="b">Unlock</button><div id="lerr"></div></form>
+<input id="pw" name="password" type="password" autocomplete="current-password" required enterkeyhint="go"><button class="b">Unlock</button><div id="lerr"></div></form></template>
 <input type="file" id="pick" accept="image/*" hidden>
 <div id="ask" class="ask" hidden><form id="askform" class="askbox" autocomplete="off">
 <h2 id="asktitle">Turn off?</h2><p id="asktext"></p>
@@ -599,8 +600,11 @@ async function loadArt(){
     }catch(e){}
   }
 }
+function showLogin(){if(!$('login')){$('loginSlot').append($('loginTpl').content.cloneNode(true));const u=$('pw');if(u)setTimeout(()=>{try{u.focus()}catch(e){}},60)}}
+function hideLogin(){const f=$('login');if(f)f.remove()}
 function show(){
-  $('login').hidden=!!token;$('app').hidden=!token;$('tabs').hidden=!token;clearInterval(timer)
+  if(token)hideLogin();else showLogin()
+  $('app').hidden=!token;$('tabs').hidden=!token;clearInterval(timer)
   if(!token){document.body.dataset.theme='plain';return}
   refresh();loadArt();timer=setInterval(refresh,10000)
 }
@@ -646,9 +650,10 @@ $('pick').addEventListener('change',async()=>{
     say(j.message||'Saved.');lastSig='';refresh()
   }catch(err){say(err.message,true)}
 })
-$('login').addEventListener('submit',async e=>{
+$('loginSlot').addEventListener('submit',async e=>{
+  if(!e.target||e.target.id!=='login')return
   e.preventDefault();$('lerr').textContent=''
-  try{const j=await api('/login',{password:$('pw').value});token=j.token;try{sessionStorage.setItem('t',token)}catch(x){};$('pw').value='';show()}
+  try{const j=await api('/login',{password:$('pw').value});token=j.token;try{sessionStorage.setItem('t',token)}catch(x){};show()}
   catch(err){$('lerr').textContent=err.message}
 })
 show()
