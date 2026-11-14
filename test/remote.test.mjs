@@ -560,3 +560,26 @@ test('the power icon and the Steam button have hold-and-slide menus, and their s
   assert.ok(html.includes("document.querySelector('.dd.open,.smenu,.b.holding')"))
   assert.ok(html.includes("lastSig=JSON.stringify(data)+'|'+active"))
 })
+
+test('the hub passes a laptop\'s own page address to the page, and a link-only laptop shows as not controllable', async (t) => {
+  const s = await startHub({
+    password: PASSWORD, port: 0, host: '127.0.0.1',
+    getDevices: () => ({ a: { mac: '', agent: 'http://100.1.1.1:8790', page: 'http://100.1.1.1:8791' }, b: { mac: '', agent: '', page: 'http://100.1.1.2:8791', theme: 'tuf' } }),
+    getGames: () => [], wake: async () => {}, forward: async () => 'ok', ping: async () => true,
+  })
+  t.after(() => s.close())
+  const url = `http://127.0.0.1:${s.port}`
+  const login = await (await fetch(url + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }) })).json()
+  const body = await (await fetch(url + '/api/devices', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${login.token}` }, body: '{}' })).json()
+  const by = Object.fromEntries(body.devices.map((d) => [d.name, d]))
+  assert.equal(by.a.page, 'http://100.1.1.1:8791')
+  assert.deepEqual(by.b, { name: 'b', canWake: false, canControl: false, theme: 'tuf', page: 'http://100.1.1.2:8791', awake: null })
+})
+
+test('the page opens another laptop\'s own remote when its tab is tapped, and never makes such a laptop the active one', async (t) => {
+  const h = await hub()
+  t.after(() => h.close())
+  const html = await (await fetch(h.url + '/')).text()
+  for (const part of ['function foreign(', 'location.href=target.page', 'new URL(d.page).origin!==location.origin', "' ext'", 'Opens its own remote']) assert.ok(html.includes(part), part)
+  assert.doesNotMatch(html, /innerHTML|eval\(|style="/)
+})

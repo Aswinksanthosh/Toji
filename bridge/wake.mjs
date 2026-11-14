@@ -43,7 +43,9 @@ export function knownDevices(file = DEVICES_FILE) {
       const agent = String(d?.agent ?? '').trim().replace(/\/$/, '')
       const goodAgent = /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?$/.test(agent) ? agent : ''
       const goodMac = Boolean(parseMac(d?.mac))
-      if (!goodMac && !goodAgent) continue
+      const page = String(d?.page ?? '').trim().replace(/\/$/, '')
+      const goodPage = /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?$/.test(page) ? page : ''
+      if (!goodMac && !goodAgent && !goodPage) continue
       const theme = ['rog', 'tuf'].includes(String(d?.theme ?? '').toLowerCase()) ? String(d.theme).toLowerCase() : ''
       out[name.toLowerCase().trim()] = {
         mac: goodMac ? String(d.mac).trim() : '',
@@ -51,6 +53,8 @@ export function knownDevices(file = DEVICES_FILE) {
         agent: goodAgent,
         // Optional look of the card ("rog" or "tuf"); otherwise it follows the laptop's model name.
         ...(theme ? { theme } : {}),
+        // Optional address of this laptop's OWN remote page: tapping its tab on the page opens that address.
+        ...(goodPage ? { page: goodPage } : {}),
       }
     }
     return out

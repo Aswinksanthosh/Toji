@@ -84,3 +84,8 @@ Some buttons carry a small corner mark: **press and hold, slide to an option, le
 - **Steam**: a quick tap opens Steam as before; hold and slide for Big Picture, Show game or Close game.
 - A quick tap on the power icon opens the same menu so you can tap an option instead (works with a mouse too). Keyboard: Enter opens it, arrows move, Enter picks, Escape closes.
 The page does not redraw while a menu, hold or drop-down is in use, so nothing moves under your finger.
+
+## A separate remote address for each laptop
+If each laptop serves its own remote page (see `Setup-Remote.cmd`: answer `y` to serving the page on that laptop), give each laptop in `devices.json` the optional address of its own page, `"page"`. The tab of a laptop whose page is at another address shows a small arrow and **opens that address** when tapped; the tab of the laptop you are already on just switches. Each address has its own sign-in (the browser remembers each one separately, so going back is instant). A laptop entry may be only a link (`"page"` and `"theme"`, no agent). `devices.json` on the ROG, for example:
+`{ "big": { "agent": "http://127.0.0.1:8790" }, "second": { "agent": "http://<tuf tailscale address>:8790", "page": "http://<tuf tailscale address>:8791", "theme": "tuf" } }`
+and on the TUF the other way round, with `"big"` carrying `"page"` and `"theme": "rog"`. Only plain `http://host:port` addresses are accepted.

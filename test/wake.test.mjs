@@ -72,3 +72,24 @@ test('a device can carry an optional theme, only rog or tuf', async () => {
   assert.equal('theme' in d.b, false)
   assert.equal('theme' in d.c, false)
 })
+
+test('a laptop can carry the address of its own remote page; an entry may be only that address; odd addresses are dropped', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const f = join(mkdtempSync(join(tmpdir(), 'dev-')), 'devices.json')
+  writeFileSync(f, JSON.stringify({
+    a: { agent: 'http://100.1.1.1:8790', page: 'http://100.1.1.1:8791/' },
+    b: { page: 'http://100.1.1.2:8791', theme: 'tuf' },
+    c: { agent: 'http://100.1.1.3:8790', page: 'javascript:alert(1)' },
+    d: { page: 'http://evil.example/x?y=1' },
+    e: { page: 'ftp://100.1.1.5:21' },
+    f: { page: 5 },
+  }))
+  const d = knownDevices(f)
+  assert.equal(d.a.page, 'http://100.1.1.1:8791')
+  assert.deepEqual(d.b, { mac: '', broadcast: '255.255.255.255', agent: '', theme: 'tuf', page: 'http://100.1.1.2:8791' })
+  assert.equal('page' in d.c, false)
+  assert.equal(d.c.agent, 'http://100.1.1.3:8790')
+  assert.deepEqual(Object.keys(d), ['a', 'b', 'c'])
+})

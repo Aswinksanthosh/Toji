@@ -317,7 +317,7 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
         if (path === '/api/devices') {
           const list = await Promise.all(
             Object.entries(devices).map(async ([name, d]) => {
-              const base = { name, canWake: Boolean(d.mac), canControl: Boolean(d.agent), ...(d.theme ? { theme: d.theme } : {}) }
+              const base = { name, canWake: Boolean(d.mac), canControl: Boolean(d.agent), ...(d.theme ? { theme: d.theme } : {}), ...(d.page ? { page: d.page } : {}) }
               if (!d.agent) return { ...base, awake: null }
               if (!info) return { ...base, awake: await ping(d) }
               const got = await info(d)

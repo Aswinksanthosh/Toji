@@ -234,6 +234,7 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:14
 .tab.rog{border-radius:999px;--a:#ff4fa3}
 .tab.tuf{border-radius:3px;--a:#ffa400;clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);text-transform:uppercase;letter-spacing:.06em}
 .tab.plain{border-radius:14px;--a:#4fd0e6}
+.tab.ext .nm::after{content:' \\2197';opacity:.7}
 .tab.active{transform:translateY(-4px);border-color:var(--a);background:rgba(10,16,22,.92);box-shadow:0 0 20px -2px var(--a)}
 .tab.rog.active{background:linear-gradient(135deg,rgba(255,79,163,.55),rgba(150,70,255,.45))}
 .tab.tuf.active{background:linear-gradient(135deg,rgba(255,164,0,.42),rgba(40,30,8,.92))}
@@ -455,6 +456,10 @@ function appMenu(d){
   wrap.append(dropdown(Object.keys(labels),appLabel(pickedApp[n]),v=>{pickedApp[n]=labels[v]},c),btn('Open',()=>act(n,'app',pickedApp[n]),c,undefined,'go'))
   return wrap
 }
+// A laptop whose own remote page lives at another address (another origin): its tab opens that address.
+function foreign(d){
+  try{return !!(d&&d.page&&new URL(d.page).origin!==location.origin)}catch(e){return false}
+}
 function themeOf(d){
   if(d.theme==='rog'||d.theme==='tuf')return d.theme
   const m=d.model||''
@@ -464,7 +469,7 @@ function drawTabs(devs){
   const nav=$('tabs');nav.textContent='';nav.hidden=false
   for(const d of devs){
     const th=themeOf(d)
-    const t=el('button','tab '+th+(d.name===active?' active':''));
+    const t=el('button','tab '+th+(d.name===active?' active':'')+(foreign(d)?' ext':''));if(foreign(d))t.title='Opens its own remote';
     const nm=el('span','nm');nm.append(el('span','dot'),el('span','',d.name));if(d.awake)t.classList.add('on')
     t.append(nm)
     if(th!=='plain')t.append(el('span','sm',th.toUpperCase()))
@@ -539,7 +544,7 @@ function drawPanel(d,anim){
 function render(anim){
   const devs=data.devices
   if(!devs.length){$('panel').textContent='No laptops are listed yet.';return}
-  if(!devs.some(d=>d.name===active))active=devs.some(d=>d.name===firstName)?firstName:devs[0].name
+  if(!devs.some(d=>d.name===active&&!foreign(d)))active=(devs.find(d=>d.name===firstName&&!foreign(d))||devs.find(d=>!foreign(d))||devs[0]).name
   const d=devs.find(x=>x.name===active)
   document.body.dataset.theme=themeOf(d)
   drawTabs(devs);drawPanel(d,anim)
@@ -547,6 +552,8 @@ function render(anim){
 }
 function switchTo(name){
   if(!data||name===active)return
+  const target=data.devices.find(d=>d.name===name)
+  if(foreign(target)){location.href=target.page;return}
   const names=data.devices.map(d=>d.name)
   const a=names.indexOf(active),b=names.indexOf(name)
   active=name;try{sessionStorage.setItem('dev',active)}catch(e){}
