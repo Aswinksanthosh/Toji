@@ -93,13 +93,14 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - Automatic fallback to the local model on the main page when Gemini is out of free requests (the phone page already does this).
 
 ## Known gotchas
+- Tests must never write real files. A test once wrote `c:/steam/config/loginusers.vdf` into the repo folder and it got committed; Windows cannot create a folder named `c:`, so `git pull` failed on the laptops ("invalid path"). Every lab in `test/remote-actions.test.mjs` injects `writeAtomic`, `appendLog` and `sleep`; `test/repo.test.mjs` fails if any tracked path is invalid on Windows; the last test of `remote-actions.test.mjs` checks for stray files. Always look at `git status` before `git add -A`.
 - Every spawned process needs an `error` handler. An unhandled spawn failure takes down the whole process (found and fixed in `runLaunch`).
 - Screenshots go to Claude or Gemini and can show private things: only on request.
 - Files under `~/.jarvis` other than `workspace/` (app, game and device lists, the Google login) are refused to the file tools even if `JARVIS_FILE_ROOTS` covers the home folder; entries in `apps.json` with `& | < > ^ %` or quotes are ignored (they are opened through cmd).
 - `npm audit --omit=dev`: after `npm audit fix` only 3 high issues remain, all in the unused Kokoro voice library (`kokoro-js`, `sharp`); no fix exists upstream. Re-run the audit now and then.
 
 ## Verify after editing
-`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (228 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
+`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (230 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
 
 ## Git
 Work on `main` of the owner's fork. One commit per change, with the attribution lines the session gives. Do not force-push without approval, and do not open a pull request unless asked.

@@ -609,6 +609,7 @@ function steamLab(over = {}) {
     run: async (f, args) => (f === 'reg.exe' && args.join(' ').includes('SteamPath') ? '    SteamPath    REG_SZ    c:/steam\r\n' : ''),
     readText: (f) => { if (f.endsWith('loginusers.vdf')) return VDF2; throw new Error('none') },
     spawnFn: (cmd, args, opts) => { const c = new EventEmitter(); c.unref = () => {}; spawned.push([cmd, args, opts]); return c },
+    writeAtomic: () => {}, appendLog: () => {}, sleep: async () => {},
     ...over,
   })
   return { a, spawned }
@@ -836,4 +837,12 @@ test('every switch request leaves a log line, even when it stops early', async (
   assert.ok(log2.includes('switch requested'))
   assert.ok(log2.includes('refused: that is not an account'))
   assert.doesNotMatch(log1 + log2, /mainacct|second_acct|forgotten/)
+})
+
+test('the tests wrote no stray files into the project folder (a folder named like a drive, "c:", cannot exist on Windows)', async () => {
+  const { existsSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const { dirname } = await import('node:path')
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  for (const stray of ['c:', 'C:', 'steam-switch.log', 'art', 'state.json', 'none.json', 'buttons.json']) assert.equal(existsSync(join(root, stray)), false, stray)
 })
