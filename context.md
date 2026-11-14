@@ -37,7 +37,7 @@ Update `context.md` in the same commit whenever a new idea comes up or anything 
 ## To do (owner's list, easiest first; tick off here, not in any doc)
 Do one at a time, in this order. Mark `[x]` when done and note any result.
 - Where the repo is on the laptop: a folder named `toji`. In PowerShell (not admin) run `cd toji` from the folder that holds it, then every command below runs there. Full path stays off this file.
-- [ ] 0. Security cleanup (urgent): a fake 'update Flash Player' popup appears on the laptop. Uninstall the suspicious unlicensed software, run a Defender offline scan, change key passwords from the phone, re-check the popup, then continue below.
+- [ ] 0. Security cleanup (urgent): an 'update Flash Player' popup appeared on the laptop. Found: a validly signed old Adobe Flash 32 install plus its NPAPI Notifier scheduled task (not in the 64-bit uninstall list: 32-bit entries are under WOW6432Node); uninstalled via Settings, Apps. Still to do: Uninstall the suspicious unlicensed software, run a Defender offline scan, change key passwords from the phone, re-check the popup, then continue below.
 - [ ] 1. On the laptop: `git pull`, then double-click `Jarvis.cmd` (or the one for the chosen brain) and say hello. Confirms the update works.
 - [ ] 2. Replace the leaked Gemini key (make a new one, put it in `.env.local`, delete the old one).
 - [ ] 3. Turn on two-step sign-in for the Tailscale account.
