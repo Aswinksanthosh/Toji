@@ -186,10 +186,12 @@ body[data-theme=tuf] .dd-btn,body[data-theme=tuf] .steam .b{border-radius:3px}
 .dd.open .dd-list{max-height:230px;overflow:auto;opacity:1;transform:none;visibility:visible}
 .dd-list li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;color:#dfeaf2}
 .thumb{flex:0 0 38px;width:38px;height:38px;border-radius:6px;background:#101822 center/cover no-repeat}
-.gchip{position:absolute;top:8px;right:8px;z-index:1;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;padding:4px 9px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.3);border-radius:999px;color:#fff}
-.gbanner{cursor:pointer;position:relative;height:112px;border-radius:var(--r);border:1px solid #2a475e;background:linear-gradient(135deg,#1b2838,#2a475e) center/cover no-repeat;overflow:hidden;display:flex;align-items:flex-end;animation:up .35s ease both}
-.gbanner::after{content:'';position:absolute;inset:0;background:linear-gradient(transparent 30%,rgba(0,0,0,.82))}
-.gname{position:relative;z-index:1;padding:8px 12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;font-size:1.05rem;text-shadow:0 2px 6px #000}
+.gchip{position:absolute;top:8px;right:8px;z-index:3;font:inherit;font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;padding:5px 10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.3);border-radius:999px;color:#fff;cursor:pointer}
+.gbanner{position:relative;z-index:6;height:132px;border-radius:var(--r);animation:up .35s ease both}
+.gimg{position:absolute;inset:0;border-radius:var(--r);border:1px solid #2a475e;background:linear-gradient(135deg,#1b2838,#2a475e) center/cover no-repeat;overflow:hidden}
+.gimg::after{content:'';position:absolute;inset:0;background:linear-gradient(transparent 25%,rgba(0,0,0,.78))}
+.gdd{position:absolute;left:8px;right:8px;bottom:8px;z-index:4;flex:none}
+.gdd .dd-btn{background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.3);color:#fff;font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:1rem;padding:10px 14px;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
 .dd-list li:active,.dd-list li.sel{background:#2a475e}
 .acc{border-top:1px solid var(--line)}
 .acc-h{width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:0;color:var(--a);padding:14px 4px;font:inherit;font-size:.86rem;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;transition:color .5s}
@@ -288,7 +290,7 @@ document.addEventListener('click',()=>{for(const x of document.querySelectorAll(
 const avatars={},gameArts={}
 function gaKey(n,g){return n+'|'+g}
 function paintArt(node,url){node.style.backgroundImage='url("'+url+'")'}
-function paintGame(k){const url=gameArts[k];if(!url)return;for(const x of document.querySelectorAll('.thumb,.gbanner'))if(x.dataset.key===k)paintArt(x,url)}
+function paintGame(k){const url=gameArts[k];if(!url)return;for(const x of document.querySelectorAll('.thumb,.gimg'))if(x.dataset.key===k)paintArt(x,url)}
 let pickGame=''
 function pickPicture(g){if(!g)return;pickGame=g;$('pick').value='';$('pick').click()}
 async function shrink(file){
@@ -367,8 +369,11 @@ function drawPanel(d,anim){
   const games=d.games||data.games||[]
   if(!games.includes(picked[n]))picked[n]=games[0]||''
   const s1=el('div','row');s1.append(go('Steam','steam_open'),go('Big Picture','steam_bigpicture'),go('Show game','game_focus'))
-  const ban=el('div','gbanner');ban.dataset.key=gaKey(n,picked[n]);const gname=el('span','gname',picked[n]||'No games yet');ban.append(el('span','gchip','Change picture'),gname);ban.addEventListener('click',()=>pickPicture(picked[n]));paintGame(gaKey(n,picked[n]))
-  const s2=el('div','row');s2.append(dropdown(games,picked[n],v=>{picked[n]=v;ban.dataset.key=gaKey(n,v);gname.textContent=v;ban.style.backgroundImage='';ban.style.animation='none';void ban.offsetWidth;ban.style.animation='';paintGame(gaKey(n,v));ensureGameArt(d,v)},c||!games.length,o=>gaKey(n,o)),btn('Start game',()=>act(n,'steam_game',picked[n]),c||!games.length,undefined,'go'),go('Close game','close_game',undefined,'Close the running game on '+n+'?'))
+  const ban=el('div','gbanner'),gimg=el('div','gimg');gimg.dataset.key=gaKey(n,picked[n])
+  const chip=el('button','gchip','Change picture');chip.addEventListener('click',()=>pickPicture(picked[n]))
+  const gdd=dropdown(games,picked[n],v=>{picked[n]=v;gimg.dataset.key=gaKey(n,v);gimg.style.backgroundImage='';paintGame(gaKey(n,v));ensureGameArt(d,v)},c||!games.length,o=>gaKey(n,o))
+  gdd.classList.add('gdd');ban.append(gimg,chip,gdd)
+  const s2=el('div','row');s2.append(btn('Start game',()=>act(n,'steam_game',picked[n]),c||!games.length,undefined,'go'),go('Close game','close_game',undefined,'Close the running game on '+n+'?'))
   steam.append(ban,s1,s2)
   for(const g of games)ensureGameArt(d,g)
   const coding=[go('Start Ollama','ollama_start'),go('Stop Ollama','ollama_stop','','Stop Ollama on '+n+'?'),go('Start Jarvis','jarvis_start')]
