@@ -264,7 +264,7 @@ body[data-theme] .b.danger,body[data-theme] .askbox .b.danger{background:linear-
 <div id="ask" class="ask" hidden><form id="askform" class="askbox" autocomplete="off">
 <h2 id="asktitle">Turn off?</h2><p id="asktext"></p>
 <input id="askpw" type="password" autocomplete="current-password" placeholder="Remote password" required>
-<div class="row"><button type="button" id="askcancel" class="b">Cancel</button><button class="b danger">Turn off</button></div>
+<div class="row"><button type="button" id="askcancel" class="b">Cancel</button><button class="b danger" id="askgo">Turn off</button></div>
 <div id="askerr"></div></form></div>
 <main id="app" hidden><div id="msg" class="msg"></div><div id="panel" class="panel"></div></main>
 <nav class="tabs" id="tabs" hidden></nav>
@@ -511,7 +511,7 @@ function drawPanel(d,anim){
     const uniq=labels.map((l,i)=>labels.indexOf(l)===i?l:l+' · '+accs[i].id.slice(-4))
     steam.append(dropdown(uniq,'Switch Steam account',v=>{
       const a=accs[uniq.indexOf(v)];if(!a||a.id===d.steam.id)return
-      if(confirm('Switch '+n+' to the Steam account '+a.name+'? Steam closes and starts again, and any running game closes.'))act(n,'steam_switch',a.id)
+      confirmBox('Switch Steam account?','Switch '+n+' to the Steam account '+a.name+'? Steam closes and starts again, and any running game closes.','Switch',()=>act(n,'steam_switch',a.id))
     },c,null,true))
   }
   const games=d.games||data.games||[]
@@ -601,17 +601,26 @@ function show(){
   if(!token){document.body.dataset.theme='plain';return}
   refresh();loadArt();timer=setInterval(refresh,10000)
 }
-let askFor=''
-function askPassword(device){
-  askFor=device;$('asktitle').textContent='Turn off '+device+'?'
-  $('asktext').textContent='It will not come back until you press its power button. Enter the remote password to confirm.'
-  $('askerr').textContent='';$('askpw').value='';$('ask').hidden=false;setTimeout(()=>$('askpw').focus(),60)
+let askFor='',askFn=null
+// The same box serves two jobs: asking for the password (turn off), or a plain yes / cancel question.
+function showAsk(title,text,label,danger,needPassword){
+  $('asktitle').textContent=title;$('asktext').textContent=text;$('askgo').textContent=label
+  $('askgo').classList.toggle('danger',!!danger)
+  $('askpw').hidden=!needPassword;$('askpw').required=!!needPassword
+  $('askerr').textContent='';$('askpw').value='';$('ask').hidden=false
+  setTimeout(()=>{if(needPassword)$('askpw').focus();else $('askgo').focus()},60)
 }
-function closeAsk(){$('ask').hidden=true;$('askpw').value='';askFor=''}
+function askPassword(device){
+  askFor=device;askFn=null
+  showAsk('Turn off '+device+'?','It will not come back until you press its power button. Enter the remote password to confirm.','Turn off',true,true)
+}
+function confirmBox(title,text,label,fn){askFor='';askFn=fn;showAsk(title,text,label,false,false)}
+function closeAsk(){$('ask').hidden=true;$('askpw').value='';$('askpw').hidden=false;$('askpw').required=true;askFor='';askFn=null}
 $('askcancel').addEventListener('click',closeAsk)
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('ask').hidden)closeAsk()})
 $('askform').addEventListener('submit',async e=>{
   e.preventDefault();$('askerr').textContent=''
+  if(askFn){const f=askFn;closeAsk();f();return}
   const pw=$('askpw').value,dev=askFor;if(!pw||!dev)return
   try{
     const j=await api('/api/do',{device:dev,action:'shutdown',password:pw})

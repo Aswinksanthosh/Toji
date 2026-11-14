@@ -686,3 +686,20 @@ test('turn off waits 15 seconds and can be cancelled; cancelling with nothing wa
   const linux = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux' })
   await assert.rejects(linux.run('shutdown'), /Windows only/)
 })
+
+test('switching accounts also moves the MostRecent flag after a backup, touches nothing else, and carries no template placeholders', async () => {
+  const { a, spawned } = steamLab()
+  await a.run('steam_switch', '76561198000000002')
+  const script = decode(spawned[0][1])
+  assert.match(script, /\$id = '76561198000000002'/)
+  assert.match(script, /Copy-Item \$vdf \(\$vdf \+ '\.jarvis-backup'\) -Force/)
+  assert.match(script, /"MostRecent"/)
+  assert.match(script, /UTF8Encoding \$false/)
+  // the backup is made before the file is rewritten, and Steam is closed before either
+  assert.ok(script.indexOf('-shutdown') < script.indexOf('Copy-Item'))
+  assert.ok(script.indexOf('Copy-Item') < script.indexOf('WriteAllText'))
+  assert.ok(script.indexOf('WriteAllText') < script.indexOf('AutoLoginUser'))
+  assert.ok(script.indexOf('AutoLoginUser') < script.lastIndexOf('Start-Process $exe'))
+  assert.doesNotMatch(script, /\$\{|undefined|\[object/)
+  assert.doesNotMatch(script, /AccountName|Password\s*=|SecureString/)
+})

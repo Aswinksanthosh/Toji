@@ -248,12 +248,26 @@ else { Start-Process node -ArgumentList 'scripts\remote.mjs' -WorkingDirectory $
 export const REMOTE_TASK = 'Jarvis Remote Buttons'
 
 // Closes Steam politely (then firmly after 40 s), tells it which remembered account to use, and starts it again.
-const switchSteamScript = (exe, account) => String.raw`$exe = ${psQuote(exe)}
+const switchSteamScript = (exe, account, id) => String.raw`$exe = ${psQuote(exe)}
 $name = ${psQuote(account)}
+$id = ${psQuote(id)}
 if (Get-Process steam -ErrorAction SilentlyContinue) {
   Start-Process $exe -ArgumentList '-shutdown'
   for ($i = 0; $i -lt 40 -and (Get-Process steam -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Seconds 1 }
   Get-Process steam -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+# Newer Steam also looks at which account is flagged MostRecent. Only those flags change, after a backup.
+$vdf = Join-Path (Split-Path $exe -Parent) 'config\loginusers.vdf'
+if (Test-Path $vdf) {
+  Copy-Item $vdf ($vdf + '.jarvis-backup') -Force
+  $text = [IO.File]::ReadAllText($vdf)
+  $text = [regex]::Replace($text, '"(\d{17})"\s*\{[^}]*\}', {
+    param($block)
+    $flag = '0'
+    if ($block.Groups[1].Value -eq $id) { $flag = '1' }
+    [regex]::Replace($block.Value, '("MostRecent"\s+")\d(")', { param($part) $part.Groups[1].Value + $flag + $part.Groups[2].Value })
+  })
+  [IO.File]::WriteAllText($vdf, $text, (New-Object Text.UTF8Encoding $false))
 }
 $key = 'HKCU:\Software\Valve\Steam'
 Set-ItemProperty -Path $key -Name AutoLoginUser -Value $name
@@ -565,7 +579,7 @@ export function createRemoteActions({
     const target = /^\d{17}$/.test(wanted) ? steam?.accounts?.find((a) => a.id === wanted) : null
     if (!target) throw new Error('That is not an account this laptop stays signed in to.')
     if (target.id === steam.id) return `${target.name} is already signed in.`
-    const child = spawnFn('powershell.exe', psArgs(switchSteamScript(join(steam.path, 'steam.exe'), target.account)), { detached: true, stdio: 'ignore', windowsHide: true })
+    const child = spawnFn('powershell.exe', psArgs(switchSteamScript(join(steam.path, 'steam.exe'), target.account, target.id)), { detached: true, stdio: 'ignore', windowsHide: true })
     child.once('error', () => {})
     child.unref?.()
     return `Switching Steam to ${target.name}. Steam closes and starts again: about 30 seconds.`

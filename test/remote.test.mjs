@@ -484,7 +484,9 @@ test('the page has the Steam account switcher with a confirmation', async (t) =>
   const h = await hub()
   t.after(() => h.close())
   const html = await (await fetch(h.url + '/')).text()
-  for (const part of ['Switch Steam account', "'steam_switch'", 'Steam closes and starts again']) assert.ok(html.includes(part), part)
+  for (const part of ['Switch Steam account', "'steam_switch'", 'Steam closes and starts again', 'function confirmBox(', 'id="askgo"']) assert.ok(html.includes(part), part)
+  // no browser pop-up is used any more: some phone browsers block them silently
+  assert.doesNotMatch(html, /(^|[^\w.])(confirm|alert|prompt)\(/)
 })
 
 test('turning a laptop off needs the password again, even in an unlocked session; wrong tries count toward the lockout', async (t) => {
