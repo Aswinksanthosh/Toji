@@ -37,3 +37,9 @@ You write this file yourself. The phone can only press a button by its name; it 
 ## Look of the page
 Each laptop is a card. The agent reports the laptop's model name, and the card follows it: a model with "ROG" in its name gets a red ROG look with the badge ROG, one with "TUF" gets an orange TUF look with the badge TUF, anything else the plain blue look. To force a look, add `"theme": "rog"` or `"theme": "tuf"` to that laptop's entry in `devices.json`. Only colours and the words ROG and TUF are used, never the logos.
 Inside each card, the Steam panel (Steam colours) shows who is signed in to Steam on that laptop (the display name from Steam's own `loginusers.vdf`, no passwords are read) and which game is running, with the Steam, Big Picture, Start game and Close game buttons. Each laptop lists its own games from its own `games.json`.
+
+### Switching and moods
+The page shows one laptop at a time. A switch bar at the bottom has one button per laptop (or swipe left and right). Each laptop has its own mood: ROG is soft and neon pink with rounded buttons, falling petals and an original drawn character with headphones; TUF is sharp and amber with chamfered buttons, hazard stripes, rising embers and an original drawn hooded figure. Games open from an animated drop-down, and Media, Apps, Coding and System fold open. With "reduce motion" turned on in the phone, the animations are off.
+
+### Your own background pictures
+Put a picture at `C:\Users\<you>\.jarvis\art\rog.jpg` and/or `tuf.jpg` on the laptop that runs the phone page (the one with the password). PNG, JPG and WEBP work, up to 3 MB. It replaces the drawn character behind that laptop's mood, and it is only sent to the phone after the password. Use art you are allowed to use; the built-in characters are original drawings made for this project.

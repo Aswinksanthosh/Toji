@@ -193,3 +193,37 @@ test('the hub passes the laptop model, the Steam user and a theme override to th
   assert.equal(byName.b.model, 'ROG Strix')
   assert.deepEqual(byName.b.steam, { user: 'Someone', playing: '' })
 })
+
+test('background pictures: only after unlocking, only for rog or tuf, and the policy allows nothing beyond blob: images', async (t) => {
+  const asked = []
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47])
+  const s = await startHub({
+    password: PASSWORD, port: 0, host: '127.0.0.1',
+    getDevices: () => DEVICES, getGames: () => [], wake: async () => {}, forward: async () => 'ok', ping: async () => true,
+    getArt: async (theme) => (asked.push(theme), theme === 'rog' ? { type: 'image/png', bytes: png } : null),
+  })
+  t.after(() => s.close())
+  const url = `http://127.0.0.1:${s.port}`
+  const post = (body, token) => fetch(url + '/api/art', { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) })
+  const login = await (await fetch(url + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }) })).json()
+  assert.equal((await post({ theme: 'rog' })).status, 401)
+  assert.deepEqual(asked, [])
+  const ok = await post({ theme: 'rog' }, login.token)
+  assert.equal(ok.status, 200)
+  assert.equal(ok.headers.get('content-type'), 'image/png')
+  assert.deepEqual(Buffer.from(await ok.arrayBuffer()), png)
+  assert.equal((await post({ theme: 'tuf' }, login.token)).status, 204)
+  for (const bad of ['../../etc/passwd', 'rog/../x', '', 5, null, { a: 1 }]) assert.equal((await post({ theme: bad }, login.token)).status, 204, String(bad))
+  assert.deepEqual(asked, ['rog', 'tuf'])
+  const csp = (await fetch(url + '/')).headers.get('content-security-policy')
+  assert.match(csp, /img-src blob:;/)
+  assert.doesNotMatch(csp, /img-src[^;]*(https?:|data:|\*|'self')/)
+})
+
+test('the page has the switch bar, both characters and moving backgrounds, and respects reduced motion', async (t) => {
+  const h = await hub()
+  t.after(() => h.close())
+  const html = await (await fetch(h.url + '/')).text()
+  for (const part of ['class="art rog"', 'class="art tuf"', 'id="tabs"', 'class="fx rog"', 'class="fx tuf"', 'prefers-reduced-motion']) assert.ok(html.includes(part), part)
+  assert.doesNotMatch(html, /innerHTML|eval\(|style="|<img|http:\/\/|https:\/\//)
+})

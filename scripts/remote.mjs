@@ -3,7 +3,8 @@
 //   JARVIS_AGENT_TOKEN      (24+ chars) lets this machine act as an agent, and the hub talk to agents
 //   JARVIS_REMOTE_PASSWORD  (12+ chars) serves the phone page (the hub)
 // Devices come from ~/.jarvis/devices.json, games from ~/.jarvis/games.json.
-import { networkInterfaces } from 'node:os'
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import { homedir, networkInterfaces } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { httpForward, httpInfo, httpPing, startAgent, startHub } from '../bridge/remote.mjs'
@@ -50,6 +51,20 @@ if (token) {
   console.log(`[remote] agent ready on port ${agentPort}: this laptop can open Steam, start games, media keys, apps, restart, lock and more.`)
 }
 
+// Optional background pictures: ~/.jarvis/art/rog.(png|jpg|jpeg|webp) and tuf.*, up to 3 MB each.
+const ART_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }
+const getArt = (theme) => {
+  for (const [ext, type] of Object.entries(ART_TYPES)) {
+    const file = join(homedir(), '.jarvis', 'art', `${theme}.${ext}`)
+    try {
+      if (existsSync(file) && statSync(file).size <= 3 * 1024 * 1024) return { type, bytes: readFileSync(file) }
+    } catch {
+      // Unreadable file: no picture.
+    }
+  }
+  return null
+}
+
 if (password) {
   const { knownGames } = await import('../bridge/local.mjs').catch(() => ({ knownGames: () => ({}) }))
   await startHub({
@@ -61,6 +76,7 @@ if (password) {
     forward: token ? httpForward(token) : async () => { throw new Error('No agent token is set on this hub.') },
     ping: token ? httpPing(token) : async () => false,
     info: token ? httpInfo(token) : undefined,
+    getArt,
   })
   console.log(`[remote] phone page on, password protected. On your phone open: ${addresses(hubPort) || `port ${hubPort}`}`)
 }
