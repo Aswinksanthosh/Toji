@@ -339,3 +339,16 @@ test('the list of games that have a picture reaches the page cleaned up', async 
   const got = await httpInfo(TOKEN)({ agent: `http://127.0.0.1:${s.port}` })
   assert.deepEqual(got.gameArt, ['pubg', 'x'.repeat(60)])
 })
+
+test('only a plain short commit id from an agent reaches the page as the version', async (t) => {
+  const { httpInfo } = await import('../bridge/remote.mjs')
+  const body = { ok: true, games: [], version: 'a1b2c3d' }
+  const s = await startAgent({ token: TOKEN, port: 0, host: '127.0.0.1', run: async () => 'ok', info: () => body })
+  t.after(() => s.close())
+  const get = () => httpInfo(TOKEN)({ agent: `http://127.0.0.1:${s.port}` })
+  assert.equal((await get()).version, 'a1b2c3d')
+  body.version = '<script>alert(1)</script>'
+  assert.equal((await get()).version, '')
+  body.version = 5
+  assert.equal((await get()).version, '')
+})

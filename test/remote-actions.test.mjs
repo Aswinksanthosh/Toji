@@ -246,7 +246,7 @@ test('info lists games, button names, apps, the model and the Steam user with th
   })
   const info = await a.info()
   assert.deepEqual(info, {
-    games: ['pubg'], gameArt: [], buttons: ['my tests'], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'],
+    games: ['pubg'], gameArt: [], version: '', buttons: ['my tests'], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'],
     model: 'ROG Strix G614JV', steam: { user: 'Current Name', playing: 'pubg', avatar: false },
     mode: '', cap: { on: false, target: 70 }, governor: true,
   })
@@ -255,7 +255,7 @@ test('info lists games, button names, apps, the model and the Steam user with th
 
 test('info works with no Steam and no model (other systems, or a slow answer)', async () => {
   const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux', capEnabled: true, stateFile: 'none.json', readText: () => { throw new Error('none') } })
-  assert.deepEqual(await a.info(), { games: [], gameArt: [], buttons: [], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'], model: '', steam: null, mode: '', cap: { on: false, target: 70 }, governor: false })
+  assert.deepEqual(await a.info(), { games: [], gameArt: [], version: '', buttons: [], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'], model: '', steam: null, mode: '', cap: { on: false, target: 70 }, governor: false })
   const b = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, run: async () => { throw new Error('x') }, platform: 'win32' })
   const info = await b.info()
   assert.equal(info.model, '')
@@ -434,4 +434,50 @@ test('game pictures: only for games in your list, only from the games art folder
   assert.equal(String((await a.gameArt('portal 2')).bytes), 'art/games/portal 2.webp')
   for (const bad of ['secret', '../secret', 'pubg/../secret', 'art/games/pubg', '', null, undefined, 'x'.repeat(80), 'pubg\u0000']) assert.equal(await a.gameArt(bad), null, String(bad))
   assert.deepEqual((await a.info()).gameArt, ['pubg', 'Portal 2'])
+})
+
+test('update and restart: pulls, installs only if the dependency files changed, and restarts only the remote; nothing happens when already up to date', async () => {
+  const calls = []
+  const spawned = []
+  let head = 'aaaa111122223333aaaa111122223333aaaa1111'
+  const run = (changedFiles) => async (file, args, opts) => {
+    calls.push([file, args, opts])
+    if (args.includes('rev-parse')) return head + '\n'
+    if (args.includes('pull')) { head = 'bbbb111122223333bbbb111122223333bbbb1111'; return 'Updating\n' }
+    if (args.includes('diff')) return changedFiles.join('\n') + '\n'
+    return ''
+  }
+  const make = (files) => createRemoteActions({
+    root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', run: run(files),
+    spawnFn: (cmd, args, opts) => { const c = new EventEmitter(); c.unref = () => {}; spawned.push([cmd, args, opts]); return c },
+  })
+  const msg = await make(['bridge/remote.mjs', 'README-remote.md']).run('update_remote')
+  assert.match(msg, /Updated 2 files to bbbb111\. Restarting the remote/)
+  assert.ok(calls.some((c) => c[1].includes('--ff-only')))
+  assert.ok(!calls.some((c) => c[0] === 'cmd.exe'))
+  assert.equal(spawned.length, 1)
+  assert.equal(spawned[0][0], 'powershell.exe')
+  const script = decode(spawned[0][1])
+  assert.ok(script.includes(`$root = '${ROOT}'`))
+  assert.match(script, /remote\\.mjs/)
+  assert.match(script, /Start-ScheduledTask -TaskName 'Jarvis Remote Buttons'/)
+  assert.doesNotMatch(script, /Stop-Process -Name/)
+  assert.equal(spawned[0][2].detached, true)
+
+  head = 'aaaa111122223333aaaa111122223333aaaa1111'
+  calls.length = 0
+  await make(['package-lock.json', 'bridge/x.mjs']).run('update_remote')
+  const npm = calls.find((c) => c[0] === 'cmd.exe')
+  assert.deepEqual(npm[1], ['/d', '/s', '/c', 'npm install'])
+  assert.equal(npm[2].cwd, ROOT)
+
+  const same = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', run: async (f, a) => (a.includes('rev-parse') ? 'cccc\n' : ''), spawnFn: () => { throw new Error('must not restart') } })
+  assert.match(await same.run('update_remote'), /Already up to date/)
+})
+
+test('the version shown on the page is the short commit, cleaned', async () => {
+  const good = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux', run: async () => 'a1b2c3d\n' })
+  assert.equal((await good.info()).version, 'a1b2c3d')
+  const odd = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux', run: async () => 'not a hash; calc' })
+  assert.equal((await odd.info()).version, '')
 })

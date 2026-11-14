@@ -75,6 +75,7 @@ export const REMOTE_ACTIONS = [
   'ollama_stop',
   'jarvis_start',
   'git_pull',
+  'update_remote',
   'status',
   'app',
   'button',
@@ -107,10 +108,10 @@ export function knownButtons(file = join(homedir(), '.jarvis', 'buttons.json')) 
   return out
 }
 
-function defaultRun(file, args, { timeout = 15_000 } = {}) {
+function defaultRun(file, args, { timeout = 15_000, cwd } = {}) {
   return new Promise((resolve, reject) => {
     // The callback also receives a failure to start, so nothing is left unhandled.
-    execFile(file, args, { windowsHide: true, timeout, maxBuffer: 1 << 20 }, (err, stdout) =>
+    execFile(file, args, { windowsHide: true, timeout, cwd, maxBuffer: 1 << 20 }, (err, stdout) =>
       err ? reject(new Error(String(err.message).split('\n')[0])) : resolve(String(stdout)),
     )
   })
@@ -176,6 +177,17 @@ if ($g) {
 const startAppScript = (name, exact) => String.raw`$n = ${psQuote(name)}
 $a = Get-StartApps | Where-Object { ${exact ? '$_.Name -eq $n' : '$_.Name -like $n'} } | Select-Object -First 1
 if ($a) { Start-Process explorer.exe ("shell:AppsFolder\" + $a.AppID); $a.Name }`
+
+// Restarts only the remote (never Jarvis): waits so the answer can be sent first, stops the old copy, starts the new one.
+const restartRemoteScript = (root, task) => String.raw`$root = ${psQuote(root)}
+Start-Sleep -Seconds 2
+Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -and $_.CommandLine -match 'remote\.mjs' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Start-Sleep -Seconds 1
+if (Get-ScheduledTask -TaskName ${psQuote(task)} -ErrorAction SilentlyContinue) { Start-ScheduledTask -TaskName ${psQuote(task)} }
+else { Start-Process node -ArgumentList 'scripts\remote.mjs' -WorkingDirectory $root -WindowStyle Hidden }`
+export const REMOTE_TASK = 'Jarvis Remote Buttons'
 
 const MODEL = String.raw`Get-CimInstance Win32_ComputerSystem | ForEach-Object { "$($_.Manufacturer)|$($_.Model)" }`
 
@@ -322,6 +334,8 @@ export function createRemoteActions({
         const last = out.trim().split(/\r?\n/).at(-1) || 'Done.'
         return `Update: ${last.slice(0, 120)}`
       }
+      case 'update_remote':
+        return updateRemote()
       case 'status':
         return statusText()
       case 'app': {
@@ -407,6 +421,33 @@ export function createRemoteActions({
     writeState({ enabled: cap, mode })
     if (!capEnabled) return `${m.name} mode: Windows power mode set.`
     return `${m.name} mode.${cap ? ` Graphics temperature cap ${clampTarget(targetC)} °C is on.${await governorNote()}` : ' Graphics temperature cap is off.'}`
+  }
+
+  let versionCache = { at: 0, value: '' }
+  async function gitVersion() {
+    if (Date.now() - versionCache.at < 20_000) return versionCache.value
+    const value = await run('git', ['-C', root, 'rev-parse', '--short', 'HEAD']).then((o) => (/^[0-9a-f]{4,12}$/.exec(o.trim()) ?? [''])[0], () => '')
+    versionCache = { at: Date.now(), value }
+    return value
+  }
+
+  async function updateRemote() {
+    const head = async () => (await run('git', ['-C', root, 'rev-parse', 'HEAD'])).trim()
+    const before = await head()
+    await run('git', ['-C', root, 'pull', '--ff-only'], { timeout: 60_000 })
+    const after = await head()
+    versionCache.at = 0
+    if (before === after) return 'Already up to date. Nothing to restart.'
+    const changed = (await run('git', ['-C', root, 'diff', '--name-only', before, after])).split(/\r?\n/).filter(Boolean)
+    if (changed.some((f) => f === 'package.json' || f === 'package-lock.json')) {
+      winOnly()
+      await run('cmd.exe', ['/d', '/s', '/c', 'npm install'], { timeout: 180_000, cwd: root })
+    }
+    winOnly()
+    const child = spawnFn('powershell.exe', psArgs(restartRemoteScript(root, REMOTE_TASK)), { detached: true, stdio: 'ignore', windowsHide: true })
+    child.once('error', () => {})
+    child.unref?.()
+    return `Updated ${changed.length} file${changed.length === 1 ? '' : 's'} to ${after.slice(0, 7)}. Restarting the remote: reload this page in about 20 seconds.`
   }
 
   async function statusText() {
@@ -526,6 +567,7 @@ export function createRemoteActions({
       return {
         games: games(),
         buttons: Object.keys(knownButtons(buttonsFile)),
+        version: await gitVersion(),
         gameArt: games().filter((g) => gameArtFile(g)),
         apps: [...Object.keys(APPS), ...Object.keys(START_APPS), ...Object.keys(knownRemoteApps(appsFile))],
         model,

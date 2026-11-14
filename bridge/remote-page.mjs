@@ -348,7 +348,7 @@ function drawPanel(d,anim){
   if(th!=='plain')line.append(el('span','badge',th.toUpperCase()))
   const st=el('span','chip');st.append(el('span','dot'),el('span','',d.awake?'awake':(d.canControl?'asleep or off':'no agent')));line.append(st)
   hero.append(line)
-  if(d.model)hero.append(el('div','model',d.model))
+  if(d.model||d.version)hero.append(el('div','model',[d.model,d.version?'version '+d.version:''].filter(Boolean).join('  ·  ')))
   const quick=el('div','glass row');quick.append(btn('Wake',()=>act(n,'wake'),!d.canWake),go('Lock','lock',undefined,'Lock '+n+'?'),go('Screen off','screen_off'))
   const modes=el('div','glass modes');modes.append(el('h3','','MODE'))
   const segs=el('div','segs')
@@ -375,13 +375,14 @@ function drawPanel(d,anim){
   const s2=el('div','row');s2.append(dropdown(games,picked[n],v=>{picked[n]=v;ban.dataset.key=gaKey(n,v);gname.textContent=v;ban.style.backgroundImage='';ban.style.animation='none';void ban.offsetWidth;ban.style.animation='';paintGame(gaKey(n,v));ensureGameArt(d,v)},c||!games.length,o=>gaKey(n,o)),btn('Start game',()=>act(n,'steam_game',picked[n]),c||!games.length,undefined,'go'),go('Close game','close_game',undefined,'Close the running game on '+n+'?'))
   steam.append(ban,s1,s2)
   for(const g of games)ensureGameArt(d,g)
-  const coding=[go('Start Ollama','ollama_start'),go('Stop Ollama','ollama_stop','','Stop Ollama on '+n+'?'),go('Start Jarvis','jarvis_start'),go('Update Jarvis','git_pull')]
+  const coding=[go('Start Ollama','ollama_start'),go('Stop Ollama','ollama_stop','','Stop Ollama on '+n+'?'),go('Start Jarvis','jarvis_start')]
   for(const b of d.buttons||[])coding.push(go(b,'button',b,'Run "'+b+'" on '+n+'?'))
   const more=el('div','glass')
   more.append(
     acc(n+'|media','Media',[go('Prev','media_prev'),go('Play / pause','media_playpause'),go('Next','media_next'),go('Vol -','volume_down'),go('Mute','mute'),go('Vol +','volume_up')]),
     acc(n+'|apps','Open apps',[appMenu(d)]),
     acc(n+'|code','Coding',coding),
+    acc(n+'|upd','Update this app',[go('Git pull','git_pull'),go('Update & restart','update_remote',undefined,'Update '+n+' and restart its remote? Reload this page in about 20 seconds.')]),
     acc(n+'|sys','System',[go('Status','status'),go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?'),go('Restart','restart',undefined,'Restart '+n+'? It comes back by itself in about a minute.'),go('Sleep','sleep',undefined,'Sleep makes '+n+' unreachable from this phone until you press its power button. Sleep anyway?')]))
   p.append(hero,quick,modes,steam,more)
   for(const g of games)paintGame(gaKey(n,g))
