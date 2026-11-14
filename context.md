@@ -14,7 +14,7 @@ The owner's fork of an MIT-licensed browser voice assistant ("Jarvis"). A React 
 - `bridge/memory.mjs` — notes (capped, loaded every session) and a local conversation log searched by `recall`.
 - `bridge/google.mjs` — read-only Calendar and Gmail (optional login).
 - `bridge/phone.mjs`, `telegram.mjs`, `session.mjs` — phone access (password page over Wi-Fi or Tailscale; Telegram bot).
-- `bridge/remote.mjs`, `scripts/remote.mjs`, `Remote.cmd` — no-AI phone buttons (wake, Steam, game, lock, sleep): an agent per laptop plus a hub page. `Autostart-Remote.cmd` starts them hidden at sign-in (Startup folder shortcut; only the light agent, never Jarvis/the model, so games keep full performance). See `README-remote.md`.
+- `bridge/remote.mjs`, `scripts/remote.mjs`, `Remote.cmd` — no-AI phone buttons (wake, Steam, game, lock, sleep): an agent per laptop plus a hub page. `Autostart-Remote.cmd` starts them hidden at sign-in (scheduled task at logon, because the Startup folder waits for the desktop and the owner's laptop boots into Xbox full screen mode; Startup-folder shortcut is the fallback; only the light agent, never Jarvis/the model, so games keep full performance). See `README-remote.md`.
 - `src/config.ts` — page settings from `.env.local` (`VITE_*`). `src/App.tsx`, `src/ui/Hud.tsx` — the page.
 - `scripts/launch.ps1`, `start-limited.ps1`, `Jarvis*.cmd` — one-click Windows launchers and the graphics clock cap. `Jarvis-Local-Full.cmd` is the local brain with no cap (`JARVIS_GPU_CAP=0`).
 - `.env.example` documents every setting. `README-*.md` are the setup guides.
@@ -51,6 +51,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - [ ] 9. Steam: fill `~/.jarvis/games.json`, test launching one game.
 - Decision: owner keeps the laptop awake and plugged in (battery capped at 80%), screen off, lid does nothing, because a sleeping laptop is unreachable and a shut-down one cannot be started remotely. No Telegram queue, no Wake-on-LAN for now. Jarvis (AI/local model) is never auto-started because it uses graphics memory that games need.
 - Test result: remote buttons Steam, Big Picture and PUBG (id 578080 in `games.json`) all launched from the phone over Tailscale. Open issue: the laptop froze and showed 'ran into a problem' around then; cause unknown, checking the System event log (ids 41, 1001), not caused by the buttons as far as known. Do not start the game again until understood.
+- Finding: the Startup-folder autostart only ran after leaving Xbox full screen mode, so autostart was switched to a scheduled task at logon (untested on the laptop, check after `git pull` and re-running `Autostart-Remote.cmd`).
 - [ ] 10. Remote buttons (one laptop, `devices.json` entry with only `agent: http://127.0.0.1:8790`, then `Autostart-Remote.cmd`): `Setup-Remote.cmd` on each laptop, test from the phone.
 - [ ] 11. Wake-on-LAN helper (only if step 7 says it is needed).
 - [ ] 12. Try `qwen3:8b` as the local model.
