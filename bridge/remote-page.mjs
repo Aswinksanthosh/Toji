@@ -234,7 +234,7 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:14
 <nav class="tabs" id="tabs" hidden></nav>
 <script nonce="${nonce}">
 const $=id=>document.getElementById(id)
-let token='',timer=0,data=null,active='',lastSig='',msgTimer=0,dir=''
+let token='',timer=0,data=null,active='',lastSig='',msgTimer=0,dir='',firstName=''
 const opened=new Set(),picked={},seen={},pickedApp={}
 const APP_LABELS={discord:'Discord',spotify:'Spotify',epic:'Epic Games',claude:'Claude',glidex:'ASUS GlideX'}
 const appLabel=k=>APP_LABELS[k]||k.charAt(0).toUpperCase()+k.slice(1)
@@ -367,7 +367,7 @@ function drawPanel(d,anim){
 function render(anim){
   const devs=data.devices
   if(!devs.length){$('panel').textContent='No laptops are listed yet.';return}
-  if(!devs.some(d=>d.name===active))active=devs[0].name
+  if(!devs.some(d=>d.name===active))active=devs.some(d=>d.name===firstName)?firstName:devs[0].name
   const d=devs.find(x=>x.name===active)
   document.body.dataset.theme=themeOf(d)
   drawTabs(devs);drawPanel(d,anim)
@@ -397,6 +397,9 @@ async function refresh(){
   try{
     const next=await api('/api/devices')
     for(const d of next.devices){if(d.model)seen[d.name]=d.model;else if(seen[d.name])d.model=seen[d.name]}
+    // The switch bar shows the laptops in reverse order (the first one in the list ends up on the right).
+    if(next.devices.length)firstName=next.devices[0].name
+    next.devices.reverse()
     data=next
     const sig=JSON.stringify(next)+'|'+active
     if(sig===lastSig||document.querySelector('.dd.open'))return
