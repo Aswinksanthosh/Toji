@@ -66,7 +66,7 @@ const listen = (server, port, host) =>
  * are the same value: a game, app or button name). `info()` says which games and buttons
  * this laptop has, so the page can show them.
  */
-export async function startAgent({ token, port = 8790, host = '0.0.0.0', run, info, allowPublic = false }) {
+export async function startAgent({ token, port = 8790, host = '0.0.0.0', run, info, avatar, allowPublic = false }) {
   const server = createServer(async (req, res) => {
     if (!allowPublic && !isPrivateAddress(req.socket.remoteAddress)) return json(res, 403, { error: 'Private networks only.' })
     // The token is checked before anything else, including the body.
@@ -75,6 +75,12 @@ export async function startAgent({ token, port = 8790, host = '0.0.0.0', run, in
       const path = (req.url ?? '/').split('?')[0]
       if (req.method === 'GET' && path === '/agent/ping') return json(res, 200, { ok: true })
       if (req.method === 'GET' && path === '/agent/info') return json(res, 200, { ok: true, ...((await info?.()) ?? {}) })
+      if (req.method === 'GET' && path === '/agent/avatar') {
+        const pic = await avatar?.()
+        if (!pic) return json(res, 404, { error: 'No picture.' })
+        res.writeHead(200, { 'content-type': pic.type, 'content-length': pic.bytes.length, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
+        return res.end(pic.bytes)
+      }
       if (req.method === 'POST' && path === '/agent/do') {
         const { action, game, arg } = await readJson(req)
         if (!AGENT_ACTIONS.has(action)) return json(res, 400, { error: 'Unknown action.' })
@@ -126,8 +132,23 @@ export const httpInfo = (token) => async (device) => {
     const names = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string').map((x) => x.slice(0, 60)).slice(0, 60) : [])
     // eslint-disable-next-line no-control-regex -- control characters are removed on purpose
     const text = (v, n) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f]/g, '').slice(0, n) : '')
-    const steam = body.steam && typeof body.steam === 'object' ? { user: text(body.steam.user, 40), playing: text(body.steam.playing, 40) } : null
-    return { games: names(body.games), buttons: names(body.buttons), model: text(body.model, 40), steam }
+    const steam = body.steam && typeof body.steam === 'object' ? { user: text(body.steam.user, 40), playing: text(body.steam.playing, 40), avatar: body.steam.avatar === true } : null
+    const mode = ['saver', 'balanced', 'gaming'].includes(body.mode) ? body.mode : ''
+    const cap = body.cap && typeof body.cap === 'object' ? { on: body.cap.on === true, target: Math.min(Math.max(Number(body.cap.target) || 70, 60), 85) } : null
+    return { games: names(body.games), buttons: names(body.buttons), model: text(body.model, 40), steam, mode, cap, governor: body.governor === true }
+  } catch {
+    return null
+  }
+}
+
+/** The profile picture a laptop's agent offers, or null. Only small png, jpeg or webp images are accepted. */
+export const httpAvatar = (token) => async (device) => {
+  try {
+    const res = await fetch(`${device.agent}/agent/avatar`, { headers: { 'x-agent-token': token }, signal: AbortSignal.timeout(4000) })
+    const type = res.headers.get('content-type') ?? ''
+    if (!res.ok || !['image/png', 'image/jpeg', 'image/webp'].includes(type)) return null
+    const bytes = Buffer.from(await res.arrayBuffer())
+    return bytes.length <= 1024 * 1024 ? { type, bytes } : null
   } catch {
     return null
   }
@@ -140,8 +161,9 @@ export const httpInfo = (token) => async (device) => {
  * wake(device), forward(device, action, arg) and ping(device) do the real work. If `info(device)`
  * is given, it replaces ping and also gives each laptop's own games and buttons.
  * getArt(theme) gives { type, bytes } for an optional background picture, or null.
+ * getAvatar(device) gives the Steam profile picture of that laptop's agent, or null.
  */
-export async function startHub({ password, port = 8791, host = '0.0.0.0', getDevices, getGames, wake, forward, ping, info, getArt, allowPublic = false, now = Date.now }) {
+export async function startHub({ password, port = 8791, host = '0.0.0.0', getDevices, getGames, wake, forward, ping, info, getArt, getAvatar, allowPublic = false, now = Date.now }) {
   const auth = createPhoneAuth({ password, now })
 
   const server = createServer(async (req, res) => {
@@ -182,6 +204,20 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
         return res.end(art.bytes)
       }
 
+      if (req.method === 'POST' && path === '/api/avatar') {
+        const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
+        if (!auth.valid(bearer)) return json(res, 401, { error: 'Please unlock again.' })
+        const { device: name } = await readJson(req)
+        const device = getDevices()[String(name ?? '').toLowerCase()]
+        const pic = device?.agent ? await getAvatar?.(device) : null
+        if (!pic) {
+          res.writeHead(204, { 'cache-control': 'no-store' })
+          return res.end()
+        }
+        res.writeHead(200, { 'content-type': pic.type, 'content-length': pic.bytes.length, 'cache-control': 'private, max-age=60', 'x-content-type-options': 'nosniff' })
+        return res.end(pic.bytes)
+      }
+
       if (req.method === 'POST' && (path === '/api/devices' || path === '/api/do')) {
         const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
         if (!auth.valid(bearer)) return json(res, 401, { error: 'Please unlock again.' })
@@ -195,7 +231,17 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
               if (!info) return { ...base, awake: await ping(d) }
               const got = await info(d)
               if (!got) return { ...base, awake: false }
-              return { ...base, awake: true, games: got.games ?? [], buttons: got.buttons ?? [], ...(got.model ? { model: got.model } : {}), ...(got.steam ? { steam: got.steam } : {}) }
+              return {
+                ...base,
+                awake: true,
+                games: got.games ?? [],
+                buttons: got.buttons ?? [],
+                ...(got.model ? { model: got.model } : {}),
+                ...(got.steam ? { steam: got.steam } : {}),
+                ...(got.mode ? { mode: got.mode } : {}),
+                ...(got.cap ? { cap: got.cap } : {}),
+                governor: got.governor === true,
+              }
             }),
           )
           return json(res, 200, { devices: list, games: getGames() })

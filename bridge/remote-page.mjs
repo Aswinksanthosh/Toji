@@ -165,7 +165,19 @@ body[data-theme=tuf] .b{text-transform:uppercase;letter-spacing:.08em;font-weigh
 .b:focus-visible,.dd-btn:focus-visible,.acc-h:focus-visible{outline:2px solid var(--a);outline-offset:2px}
 .steam{position:relative;z-index:5;background:linear-gradient(180deg,rgba(27,40,56,.62),rgba(20,26,34,.62));backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:1px solid #2a475e;border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:10px;color:#c7d5e0}
 .steam h3{margin:0;font-size:.7rem;letter-spacing:.28em;color:#66c0f4}
-.who{font-weight:700;color:#fff;font-size:1.05rem}
+.sh{display:flex;gap:12px;align-items:center}
+.sh .txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.avatar{flex:0 0 64px;width:64px;height:64px;border-radius:50%;background:#101822 center/cover no-repeat;border:2px solid var(--a);box-shadow:0 0 14px -2px var(--a);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.5rem;color:var(--a);overflow:hidden;transition:box-shadow .4s}
+body[data-theme=rog] .avatar{box-shadow:0 0 18px 0 rgba(255,79,163,.6)}
+body[data-theme=tuf] .avatar{border-radius:3px;clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
+.who{font-weight:700;color:#fff;font-size:1.05rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modes{display:flex;flex-direction:column;gap:10px}
+.modes h3{margin:0;font-size:.7rem;letter-spacing:.28em;color:var(--a)}
+.segs{display:flex;gap:6px}
+.seg{flex:1;padding:12px 6px}
+body[data-theme] .b.active{background:var(--a);color:#000;border-color:var(--a);box-shadow:0 0 16px -2px var(--a);font-weight:700}
+.capline{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:.9rem;color:#d6e8ee}
+.hint{font-size:.78rem;color:#ffcf8a}
 .now{color:#a4d007;font-size:.88rem}
 .unk{color:#8a9aa6;font-size:.88rem}
 .steam .b{background:#2a475e;border-color:#3d6c8d;color:#dfeaf2;box-shadow:none}
@@ -262,6 +274,19 @@ function dropdown(options,value,onPick,disabled){
   dd.append(b,ul);return dd
 }
 document.addEventListener('click',()=>{for(const x of document.querySelectorAll('.dd.open'))x.classList.remove('open')})
+const avatars={}
+function avatarKey(d){return d.name+'|'+((d.steam&&d.steam.user)||'')}
+function paintAvatar(av,url){av.style.backgroundImage='url("'+url+'")';av.textContent=''}
+async function ensureAvatar(d,av){
+  const k=avatarKey(d)
+  if(avatars[k]){paintAvatar(av,avatars[k]);return}
+  if(avatars[k]!==undefined||!(d.steam&&d.steam.avatar))return
+  avatars[k]=''
+  try{
+    const r=await fetch('/api/avatar',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+token},body:JSON.stringify({device:d.name})})
+    if(r.status===200){avatars[k]=URL.createObjectURL(await r.blob());for(const a of document.querySelectorAll('.avatar'))if(a.dataset.key===k)paintAvatar(a,avatars[k])}
+  }catch(e){delete avatars[k]}
+}
 function themeOf(d){
   if(d.theme==='rog'||d.theme==='tuf')return d.theme
   const m=d.model||''
@@ -290,13 +315,24 @@ function drawPanel(d,anim){
   hero.append(line)
   if(d.model)hero.append(el('div','model',d.model))
   const quick=el('div','glass row');quick.append(btn('Wake',()=>act(n,'wake'),!d.canWake),go('Lock','lock',undefined,'Lock '+n+'?'),go('Screen off','screen_off'))
+  const modes=el('div','glass modes');modes.append(el('h3','','MODE'))
+  const segs=el('div','segs')
+  for(const [k,label] of [['saver','Power saving'],['balanced','Balanced'],['gaming','Gaming']])segs.append(go(label,'mode_'+k,undefined,undefined,'seg'+(d.mode===k?' active':'')))
+  const cap=d.cap||{on:false,target:70},capline=el('div','capline')
+  capline.append(el('span','','GPU temperature cap '+cap.target+' °C'),go(cap.on?'On':'Off',cap.on?'cap_off':'cap_on',undefined,undefined,cap.on?'active':''))
+  modes.append(segs,capline)
+  if(d.awake&&d.governor===false)modes.append(el('div','hint','The cap needs Setup-Governor.cmd, run once as administrator (see README-remote).'))
   const steam=el('div','steam');steam.append(el('h3','','STEAM'))
-  if(d.steam&&d.steam.user)steam.append(el('div','who','Signed in as '+d.steam.user))
-  else steam.append(el('div','unk',d.awake?'No Steam user found':'Laptop not answering'))
-  if(d.steam&&d.steam.playing)steam.append(el('div','now','Now playing: '+d.steam.playing))
+  const head=el('div','sh'),txt=el('div','txt')
+  if(d.steam&&d.steam.user){
+    const av=el('div','avatar',d.steam.user.charAt(0).toUpperCase());av.dataset.key=avatarKey(d);head.append(av);ensureAvatar(d,av)
+    txt.append(el('div','who',d.steam.user),el('div','unk','Steam profile'))
+  }else txt.append(el('div','unk',d.awake?'No Steam user found':'Laptop not answering'))
+  if(d.steam&&d.steam.playing)txt.append(el('div','now','Now playing: '+d.steam.playing))
+  head.append(txt);steam.append(head)
   const games=d.games||data.games||[]
   if(!games.includes(picked[n]))picked[n]=games[0]||''
-  const s1=el('div','row');s1.append(go('Steam','steam_open'),go('Big Picture','steam_bigpicture'))
+  const s1=el('div','row');s1.append(go('Steam','steam_open'),go('Big Picture','steam_bigpicture'),go('Show game','game_focus'))
   const s2=el('div','row');s2.append(dropdown(games,picked[n],v=>{picked[n]=v},c||!games.length),btn('Start game',()=>act(n,'steam_game',picked[n]),c||!games.length,undefined,'go'),go('Close game','close_game',undefined,'Close the running game on '+n+'?'))
   steam.append(s1,s2)
   const coding=[go('Start Ollama','ollama_start'),go('Stop Ollama','ollama_stop','','Stop Ollama on '+n+'?'),go('Start Jarvis','jarvis_start'),go('Update Jarvis','git_pull')]
@@ -307,7 +343,7 @@ function drawPanel(d,anim){
     acc(n+'|apps','Apps',[go('Discord','app','discord'),go('Spotify','app','spotify'),go('Epic','app','epic')]),
     acc(n+'|code','Coding',coding),
     acc(n+'|sys','System',[go('Status','status'),go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?'),go('Restart','restart',undefined,'Restart '+n+'? It comes back by itself in about a minute.'),go('Sleep','sleep',undefined,'Sleep makes '+n+' unreachable from this phone until you press its power button. Sleep anyway?')]))
-  p.append(hero,quick,steam,more)
+  p.append(hero,quick,modes,steam,more)
 }
 function render(anim){
   const devs=data.devices

@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
-import { APPS, REMOTE_ACTIONS, cleanModel, createRemoteActions, knownButtons, parseSteamUser } from '../bridge/remote-actions.mjs'
+import { APPS, REMOTE_ACTIONS, cleanModel, createRemoteActions, knownButtons, parseSteamLogin, parseSteamUser } from '../bridge/remote-actions.mjs'
 
 const ROOT = 'C:\\Users\\me\\Toji'
 
@@ -204,21 +204,162 @@ test('info lists games, button names, apps, the model and the Steam user with th
   writeFileSync(buttonsFile, JSON.stringify({ 'My Tests': { command: 'npm test' } }))
   const a = createRemoteActions({
     root: ROOT, launch: async () => {}, desktop: async () => {}, games: () => ['pubg'], gameIds: () => ({ pubg: '578080' }),
-    buttonsFile, run, platform: 'win32', readText: (f) => (read.push(f), VDF),
+    buttonsFile, run, platform: 'win32', readText: (f) => { if (f.endsWith('loginusers.vdf')) { read.push(f); return VDF } throw new Error('no state') },
+    exists: () => false, stateFile: 'state.json',
   })
   const info = await a.info()
   assert.deepEqual(info, {
     games: ['pubg'], buttons: ['my tests'], apps: ['discord', 'spotify', 'epic'],
-    model: 'ROG Strix G614JV', steam: { user: 'Current Name', playing: 'pubg' },
+    model: 'ROG Strix G614JV', steam: { user: 'Current Name', playing: 'pubg', avatar: false },
+    mode: '', cap: { on: false, target: 70 }, governor: true,
   })
   assert.ok(read[0].replace(/\\/g, '/').endsWith('steam/config/loginusers.vdf'))
 })
 
 test('info works with no Steam and no model (other systems, or a slow answer)', async () => {
-  const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux' })
-  assert.deepEqual(await a.info(), { games: [], buttons: [], apps: ['discord', 'spotify', 'epic'], model: '', steam: null })
+  const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux', stateFile: 'none.json', readText: () => { throw new Error('none') } })
+  assert.deepEqual(await a.info(), { games: [], buttons: [], apps: ['discord', 'spotify', 'epic'], model: '', steam: null, mode: '', cap: { on: false, target: 70 }, governor: false })
   const b = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, run: async () => { throw new Error('x') }, platform: 'win32' })
   const info = await b.info()
   assert.equal(info.model, '')
   assert.equal(info.steam, null)
+})
+
+// -- the game window, power modes, the graphics temperature cap and the profile picture --------
+
+function lab(over = {}) {
+  const files = new Map()
+  const calls = { run: [], timers: [], cleared: [], launch: [] }
+  const base = {
+    root: ROOT,
+    launch: async (t) => calls.launch.push(t),
+    desktop: async () => {},
+    gameUrl: (n) => (n === 'pubg' ? 'steam://rungameid/578080' : null),
+    platform: 'win32',
+    stateFile: 'state.json',
+    artDir: 'art',
+    readText: (f) => { if (files.has(f)) return files.get(f); throw new Error('missing') },
+    writeAtomic: (f, text) => files.set(f, text),
+    setTimer: (fn, ms) => { const t = { fn, ms, unref() {} }; calls.timers.push(t); return t },
+    clearTimer: (t) => calls.cleared.push(t),
+    focusDelayMs: 120_000,
+    run: async (file, args) => { calls.run.push([file, args]); return '' },
+  }
+  const actions = createRemoteActions({ ...base, ...over })
+  return { actions, files, calls }
+}
+
+test('after starting a game, the game window is brought to the front 2 minutes later; a new start replaces the timer', async () => {
+  const { actions, calls } = lab()
+  assert.match(await actions.run('steam_game', 'pubg'), /bring the game to the front in 2 minutes/)
+  assert.equal(calls.timers[0].ms, 120_000)
+  assert.equal(calls.run.length, 0)
+  calls.timers[0].fn()
+  await new Promise((r) => setImmediate(r))
+  assert.match(decode(calls.run[0][1]), /SetForegroundWindow/)
+  assert.match(decode(calls.run[0][1]), /steamapps\\common/)
+  await actions.run('steam_game', 'pubg')
+  await actions.run('steam_game', 'pubg')
+  assert.equal(calls.cleared.length, 1)
+})
+
+test('the delay can be turned off, and a failed focus never crashes the agent', async () => {
+  const off = lab({ focusDelayMs: 0 })
+  assert.doesNotMatch(await off.actions.run('steam_game', 'pubg'), /front/)
+  assert.equal(off.calls.timers.length, 0)
+  const failing = lab({ run: async () => { throw new Error('boom') } })
+  await failing.actions.run('steam_game', 'pubg')
+  failing.calls.timers[0].fn()
+  await new Promise((r) => setImmediate(r))
+})
+
+test('show game focuses the biggest Steam game window and says what it found', async () => {
+  assert.equal(await lab({ run: async () => 'PUBG\r\n' }).actions.run('game_focus'), 'Showing PUBG.')
+  assert.match(await lab({ run: async () => '' }).actions.run('game_focus'), /No game window/)
+})
+
+test('gaming mode sets the Windows power mode and turns the graphics cap on; power saving and balanced turn it off', async () => {
+  const { actions, calls, files } = lab()
+  const msg = await actions.run('mode_gaming')
+  assert.deepEqual(calls.run[0], ['powercfg.exe', ['/overlaysetactive', 'OVERLAY_SCHEME_MAX']])
+  assert.match(msg, /^Gaming mode\. Graphics temperature cap 70 °C is on\.$/)
+  assert.deepEqual(JSON.parse(files.get('state.json')), { enabled: true, target: 70, mode: 'gaming' })
+  assert.match(await actions.run('mode_saver'), /Power saving mode\. Graphics temperature cap is off/)
+  assert.deepEqual(calls.run.find((c) => c[1][1] === 'OVERLAY_SCHEME_MIN')[0], 'powercfg.exe')
+  assert.deepEqual(JSON.parse(files.get('state.json')), { enabled: false, target: 70, mode: 'saver' })
+  await actions.run('mode_balanced')
+  assert.ok(calls.run.some((c) => c[1][1] === 'OVERLAY_SCHEME_NONE'))
+})
+
+test('if the Windows power mode slider is not available, the older power plan is used, then a copy of High performance', async () => {
+  const seen = []
+  const run = async (file, args) => {
+    seen.push(args)
+    if (args[0] === '/overlaysetactive') throw new Error('no overlay')
+    if (args[0] === '/setactive' && args[1] === '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c') throw new Error('hidden')
+    if (args[0] === '/duplicatescheme') return 'Power Scheme GUID: 12345678-1234-1234-1234-123456789abc  (High performance)'
+    return ''
+  }
+  const { actions } = lab({ run })
+  await actions.run('mode_gaming')
+  assert.deepEqual(seen.filter((a) => a[0] === '/setactive').at(-1), ['/setactive', '12345678-1234-1234-1234-123456789abc'])
+  const used = []
+  const saver = lab({ run: async (f, a) => { used.push(a); if (a[0] === '/overlaysetactive') throw new Error('no'); return '' } })
+  await saver.actions.run('mode_saver')
+  assert.ok(used.some((a) => a[0] === '/setactive' && a[1] === 'a1841308-3541-4fab-bc81-f71556f20b4a'))
+  const none = lab({ run: async () => { throw new Error('no') } })
+  await assert.rejects(none.actions.run('mode_balanced'), /would not change the power mode/)
+})
+
+test('the cap switch changes only the cap, keeps the mode, clamps the target, and tells you when the cap helper is not installed', async () => {
+  const { actions, files } = lab({ targetC: 99, run: async (f) => { if (f === 'schtasks.exe') throw new Error('no task'); return '' } })
+  assert.match(await actions.run('cap_on'), /Graphics cap on \(85 °C\)\. The cap does nothing until you run Setup-Governor\.cmd/)
+  assert.deepEqual(JSON.parse(files.get('state.json')), { enabled: true, target: 85, mode: '' })
+  await actions.run('mode_saver').catch(() => {})
+  const again = lab()
+  await again.actions.run('mode_gaming')
+  assert.match(await again.actions.run('cap_off'), /^Graphics cap off\.$/)
+  assert.deepEqual(JSON.parse(again.files.get('state.json')), { enabled: false, target: 70, mode: 'gaming' })
+  const low = lab({ targetC: 10 })
+  await low.actions.run('cap_on')
+  assert.equal(JSON.parse(low.files.get('state.json')).target, 60)
+})
+
+test('the state file is read back safely: odd content means off and no mode', async () => {
+  const { actions, files } = lab()
+  files.set('state.json', '{"enabled":"yes","mode":"turbo; calc"}')
+  assert.deepEqual((await actions.info()).cap, { on: false, target: 70 })
+  assert.equal((await actions.info()).mode, '')
+  files.set('state.json', 'not json')
+  assert.equal((await actions.info()).mode, '')
+  files.set('state.json', '{"enabled":true,"mode":"gaming"}')
+  const info = await actions.info()
+  assert.deepEqual([info.mode, info.cap.on], ['gaming', true])
+})
+
+test('the Steam login gives the id too, and the profile picture is yours first, then Steam\'s own, and never a big file', async () => {
+  assert.deepEqual(parseSteamLogin(VDF), { id: '76561198000000002', name: 'Current Name' })
+  assert.equal(parseSteamUser(VDF), 'Current Name')
+  const png = Buffer.from([0x89, 0x50])
+  const sizes = {}
+  const have = new Set()
+  const base = {
+    run: async (file, args) => (file === 'reg.exe' && args.join(' ').includes('SteamPath') ? '    SteamPath    REG_SZ    c:/steam\r\n' : ''),
+    readText: (f) => (f.endsWith('loginusers.vdf') ? VDF : (() => { throw new Error('none') })()),
+    exists: (f) => have.has(f.replace(/\\/g, '/')),
+    fileSize: (f) => sizes[f.replace(/\\/g, '/')] ?? 10,
+    readBytes: (f) => Buffer.from(f.replace(/\\/g, '/')),
+  }
+  const a = lab(base).actions
+  assert.equal(await a.avatar(), null)
+  have.add('c:/steam/config/avatarcache/76561198000000002.png')
+  const steamPic = await a.avatar()
+  assert.equal(steamPic.type, 'image/png')
+  assert.equal(String(steamPic.bytes), 'c:/steam/config/avatarcache/76561198000000002.png')
+  assert.equal((await a.info()).steam.avatar, true)
+  have.add('art/avatar.jpg')
+  assert.equal(String((await a.avatar()).bytes), 'art/avatar.jpg')
+  sizes['art/avatar.jpg'] = 5 * 1024 * 1024
+  assert.equal(String((await a.avatar()).bytes), 'c:/steam/config/avatarcache/76561198000000002.png')
+  void png
 })

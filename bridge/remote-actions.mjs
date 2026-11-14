@@ -14,9 +14,9 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, uptime } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 /** Apps the phone may open, by a fixed address each. */
 export const APPS = { discord: 'discord://', spotify: 'spotify:', epic: 'com.epicgames.launcher://apps' }
@@ -56,6 +56,12 @@ export const REMOTE_ACTIONS = [
   'status',
   'app',
   'button',
+  'game_focus',
+  'mode_saver',
+  'mode_balanced',
+  'mode_gaming',
+  'cap_on',
+  'cap_off',
   ...Object.keys(KEYS),
 ]
 
@@ -128,6 +134,23 @@ if (Test-Path $p) { Start-Process $p } else { Start-Process ollama -ArgumentList
 const BATTERY = String.raw`$b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($b) { "$($b.EstimatedChargeRemaining)|$($b.BatteryStatus)" }`
 
+/** Windows power modes. The overlay is the Windows 11 "Power mode" slider; the plan is the older fallback. */
+const MODES = {
+  saver: { name: 'Power saving', overlay: 'OVERLAY_SCHEME_MIN', plan: 'a1841308-3541-4fab-bc81-f71556f20b4a', cap: false },
+  balanced: { name: 'Balanced', overlay: 'OVERLAY_SCHEME_NONE', plan: '381b4222-f694-41f0-9685-ff5bb260df2e', cap: false },
+  gaming: { name: 'Gaming', overlay: 'OVERLAY_SCHEME_MAX', plan: '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c', cap: true },
+}
+export const GOVERNOR_TASK = 'Jarvis GPU Governor'
+
+const FOCUS_GAME = String.raw`Add-Type -Namespace W -Name F -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport("user32.dll")] public static extern void keybd_event(byte b, byte s, uint f, UIntPtr e);'
+$g = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path -like '*\steamapps\common\*' -and $_.MainWindowHandle -ne 0 } | Sort-Object WorkingSet64 -Descending | Select-Object -First 1
+if ($g) {
+  [W.F]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero); [W.F]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+  [W.F]::ShowWindow($g.MainWindowHandle, 9) | Out-Null
+  [W.F]::SetForegroundWindow($g.MainWindowHandle) | Out-Null
+  $g.ProcessName
+}`
+
 const MODEL = String.raw`Get-CimInstance Win32_ComputerSystem | ForEach-Object { "$($_.Manufacturer)|$($_.Model)" }`
 
 /** "ROG Strix G614JV_G614JV" -> "ROG Strix G614JV". Only a name to show, never used for anything else. */
@@ -136,16 +159,17 @@ export function cleanModel(text) {
   return model.replace(/_.*$/, '').replace(/[^\w .+-]/g, '').trim().slice(0, 40)
 }
 
-/** The signed-in Steam user: the display name Steam keeps in config/loginusers.vdf. No passwords are touched. */
-export function parseSteamUser(vdf) {
+/** The signed-in Steam user (display name and 17-digit id) from config/loginusers.vdf. No passwords are touched. */
+export function parseSteamLogin(vdf) {
   const users = []
-  for (const m of String(vdf ?? '').matchAll(/"\d{17}"\s*\{([^}]*)\}/g)) {
-    const field = (k) => new RegExp(`"${k}"\\s+"([^"]*)"`, 'i').exec(m[1])?.[1]
-    users.push({ name: field('PersonaName') || field('AccountName') || '', recent: field('MostRecent') === '1' })
+  for (const m of String(vdf ?? '').matchAll(/"(\d{17})"\s*\{([^}]*)\}/g)) {
+    const field = (k) => new RegExp(`"${k}"\\s+"([^"]*)"`, 'i').exec(m[2])?.[1]
+    users.push({ id: m[1], name: field('PersonaName') || field('AccountName') || '', recent: field('MostRecent') === '1' })
   }
   const pick = users.find((u) => u.recent && u.name) ?? users.find((u) => u.name)
-  return pick ? pick.name.slice(0, 40) : ''
+  return pick ? { id: pick.id, name: pick.name.slice(0, 40) } : { id: '', name: '' }
 }
+export const parseSteamUser = (vdf) => parseSteamLogin(vdf).name
 
 const regValue = (out, name) => new RegExp(`${name}\\s+REG_\\w+\\s+(.+)`, 'i').exec(String(out))?.[1]?.trim() ?? ''
 
@@ -169,7 +193,21 @@ export function createRemoteActions({
   gameIds = () => ({}),
   gameUrl = () => null,
   buttonsFile,
+  stateFile = join(homedir(), '.jarvis', 'gpu-governor.json'),
+  artDir = join(homedir(), '.jarvis', 'art'),
+  targetC = Number(process.env.JARVIS_GPU_TARGET_C) || 70,
+  focusDelayMs = Number(process.env.JARVIS_GAME_FOCUS_SECONDS ?? 120) * 1000,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
   readText = (file) => readFileSync(file, 'utf8'),
+  readBytes = (file) => readFileSync(file),
+  fileSize = (file) => statSync(file).size,
+  writeAtomic = (file, text) => {
+    mkdirSync(dirname(file), { recursive: true })
+    const tmp = `${file}.tmp`
+    writeFileSync(tmp, text)
+    renameSync(tmp, file)
+  },
   run = defaultRun,
   spawnFn = spawn,
   exists = existsSync,
@@ -201,7 +239,20 @@ export function createRemoteActions({
         const url = gameUrl(arg)
         if (!url) throw new Error('That game is not in games.json on this laptop.')
         await launch(url)
-        return `Starting ${arg}. It can take a minute to reach the menu.`
+        const wait = focusDelayMs > 0 ? scheduleFocus() : ''
+        return `Starting ${arg}. It can take a minute to reach the menu.${wait}`
+      }
+      case 'game_focus':
+        return focusGame()
+      case 'mode_saver':
+      case 'mode_balanced':
+      case 'mode_gaming':
+        return setMode(action.slice(5))
+      case 'cap_on':
+      case 'cap_off': {
+        const state = readState()
+        writeState({ ...state, enabled: action === 'cap_on' })
+        return `Graphics cap ${action === 'cap_on' ? `on (${clampTarget(targetC)} °C)` : 'off'}.${await governorNote()}`
       }
       case 'lock':
         await desktop('lock')
@@ -257,6 +308,69 @@ export function createRemoteActions({
     }
   }
 
+  // -- game window, power modes and the graphics temperature cap --------------------------
+
+  let focusTimer = null
+  function scheduleFocus() {
+    if (focusTimer) clearTimer(focusTimer)
+    focusTimer = setTimer(() => {
+      focusTimer = null
+      ps(FOCUS_GAME).catch(() => {})
+    }, focusDelayMs)
+    focusTimer?.unref?.()
+    const min = focusDelayMs / 60_000
+    return ` I will bring the game to the front in ${Number.isInteger(min) ? min : min.toFixed(1)} minute${min === 1 ? '' : 's'}.`
+  }
+
+  async function focusGame() {
+    const name = (await ps(FOCUS_GAME)).trim().split(/\r?\n/)[0]
+    return name ? `Showing ${name}.` : 'No game window was found yet.'
+  }
+
+  const clampTarget = (n) => Math.min(Math.max(Math.round(Number(n) || 70), 60), 85)
+  function readState() {
+    try {
+      const raw = JSON.parse(readText(stateFile))
+      return { enabled: raw?.enabled === true, mode: Object.hasOwn(MODES, raw?.mode) ? raw.mode : '' }
+    } catch {
+      return { enabled: false, mode: '' }
+    }
+  }
+  function writeState({ enabled, mode }) {
+    writeAtomic(stateFile, JSON.stringify({ enabled: Boolean(enabled), target: clampTarget(targetC), mode: mode ?? '' }))
+  }
+
+  let governorCache = { at: 0, value: false }
+  async function governorInstalled() {
+    if (platform !== 'win32') return false
+    if (Date.now() - governorCache.at < 60_000) return governorCache.value
+    const value = await run('schtasks.exe', ['/query', '/tn', GOVERNOR_TASK]).then(() => true, () => false)
+    governorCache = { at: Date.now(), value }
+    return value
+  }
+  async function governorNote() {
+    return (await governorInstalled()) ? '' : ' The cap does nothing until you run Setup-Governor.cmd once as administrator.'
+  }
+
+  async function setMode(mode) {
+    winOnly()
+    const m = MODES[mode]
+    try {
+      await run('powercfg.exe', ['/overlaysetactive', m.overlay])
+    } catch {
+      try {
+        await run('powercfg.exe', ['/setactive', m.plan])
+      } catch {
+        // "High performance" is hidden on some laptops; make a copy of it and use that.
+        const copy = mode === 'gaming' ? /([0-9a-f]{8}-[0-9a-f-]{27})/i.exec(await run('powercfg.exe', ['/duplicatescheme', m.plan]).catch(() => ''))?.[1] : null
+        if (!copy) throw new Error('Windows would not change the power mode on this laptop.')
+        await run('powercfg.exe', ['/setactive', copy])
+      }
+    }
+    writeState({ enabled: m.cap, mode })
+    return `${m.name} mode.${m.cap ? ` Graphics temperature cap ${clampTarget(targetC)} °C is on.${await governorNote()}` : ' Graphics temperature cap is off.'}`
+  }
+
   async function statusText() {
     const parts = []
     try {
@@ -308,7 +422,8 @@ export function createRemoteActions({
     try {
       const key = 'HKCU\\Software\\Valve\\Steam'
       const path = regValue(await run('reg.exe', ['query', key, '/v', 'SteamPath']), 'SteamPath') || 'C:\\Program Files (x86)\\Steam'
-      const user = parseSteamUser(readText(join(path, 'config', 'loginusers.vdf')))
+      const login = parseSteamLogin(readText(join(path, 'config', 'loginusers.vdf')))
+      const user = login.name
       let playing = ''
       try {
         const id = Number.parseInt(regValue(await run('reg.exe', ['query', key, '/v', 'RunningAppID']), 'RunningAppID'), 16)
@@ -316,10 +431,32 @@ export function createRemoteActions({
       } catch {
         // Not running a game, or the value is missing.
       }
-      return { user, playing }
+      return { user, playing, id: login.id, path }
     } catch {
       return null
     }
+  }
+
+  const IMAGE_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }
+  /** Where the picture is: one you chose (art/avatar.*), else the profile picture Steam keeps for the signed-in user. Small files only. */
+  function avatarFile(steam) {
+    const candidates = []
+    for (const ext of Object.keys(IMAGE_TYPES)) candidates.push([join(artDir, `avatar.${ext}`), ext])
+    if (platform === 'win32' && steam?.id && steam.path) {
+      for (const ext of ['png', 'jpg']) candidates.push([join(steam.path, 'config', 'avatarcache', `${steam.id}.${ext}`), ext])
+    }
+    for (const [file, ext] of candidates) {
+      try {
+        if (exists(file) && fileSize(file) <= 1024 * 1024) return { file, type: IMAGE_TYPES[ext] }
+      } catch {
+        // Unreadable: try the next one.
+      }
+    }
+    return null
+  }
+  async function avatar() {
+    const found = avatarFile(await steamInfo())
+    return found ? { type: found.type, bytes: readBytes(found.file) } : null
   }
 
   return {
@@ -328,13 +465,19 @@ export function createRemoteActions({
       let timer
       const model = await Promise.race([loadModel(), new Promise((r) => (timer = setTimeout(() => r(''), 1200)))])
       clearTimeout(timer)
+      const steam = await steamInfo()
+      const state = readState()
       return {
         games: games(),
         buttons: Object.keys(knownButtons(buttonsFile)),
         apps: Object.keys(APPS),
         model,
-        steam: await steamInfo(),
+        steam: steam ? { user: steam.user, playing: steam.playing, avatar: Boolean(avatarFile(steam)) } : null,
+        mode: state.mode,
+        cap: { on: state.enabled, target: clampTarget(targetC) },
+        governor: await governorInstalled(),
       }
     },
+    avatar,
   }
 }

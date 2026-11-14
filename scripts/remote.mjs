@@ -7,7 +7,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir, networkInterfaces } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { httpForward, httpInfo, httpPing, startAgent, startHub } from '../bridge/remote.mjs'
+import { httpAvatar, httpForward, httpInfo, httpPing, startAgent, startHub } from '../bridge/remote.mjs'
 import { createRemoteActions } from '../bridge/remote-actions.mjs'
 import { knownDevices, sendMagicPacket } from '../bridge/wake.mjs'
 
@@ -47,7 +47,7 @@ if (token) {
     gameIds: () => knownGames(),
     gameUrl: (name) => steamGameUrl(name),
   })
-  await startAgent({ token, port: agentPort, run: (action, { arg }) => actions.run(action, arg), info: actions.info })
+  await startAgent({ token, port: agentPort, run: (action, { arg }) => actions.run(action, arg), info: actions.info, avatar: actions.avatar })
   console.log(`[remote] agent ready on port ${agentPort}: this laptop can open Steam, start games, media keys, apps, restart, lock and more.`)
 }
 
@@ -77,6 +77,7 @@ if (password) {
     ping: token ? httpPing(token) : async () => false,
     info: token ? httpInfo(token) : undefined,
     getArt,
+    getAvatar: token ? httpAvatar(token) : undefined,
   })
   console.log(`[remote] phone page on, password protected. On your phone open: ${addresses(hubPort) || `port ${hubPort}`}`)
 }

@@ -161,7 +161,7 @@ test('with info, the hub shows each laptop\'s own games and buttons, and awake m
   const login = await (await fetch(url + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }) })).json()
   const body = await (await fetch(url + '/api/devices', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${login.token}` }, body: '{}' })).json()
   const byName = Object.fromEntries(body.devices.map((d) => [d.name, d]))
-  assert.deepEqual(byName['laptop-a'], { name: 'laptop-a', canWake: true, canControl: true, awake: true, games: ['hades'], buttons: ['tests'] })
+  assert.deepEqual(byName['laptop-a'], { name: 'laptop-a', canWake: true, canControl: true, awake: true, games: ['hades'], buttons: ['tests'], governor: false })
   assert.deepEqual(byName['laptop-b'], { name: 'laptop-b', canWake: true, canControl: true, awake: false })
   assert.deepEqual(byName['wake-only'], { name: 'wake-only', canWake: true, canControl: false, awake: null })
 })
@@ -226,4 +226,69 @@ test('the page has the switch bar, both characters and moving backgrounds, and r
   const html = await (await fetch(h.url + '/')).text()
   for (const part of ['class="art rog"', 'class="art tuf"', 'id="tabs"', 'class="fx rog"', 'class="fx tuf"', 'prefers-reduced-motion']) assert.ok(html.includes(part), part)
   assert.doesNotMatch(html, /innerHTML|eval\(|style="|<img|http:\/\/|https:\/\//)
+})
+
+test('the Steam profile picture goes through the hub only after unlocking, only for a laptop with an agent, and only as an image', async (t) => {
+  const asked = []
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47])
+  const s = await startHub({
+    password: PASSWORD, port: 0, host: '127.0.0.1',
+    getDevices: () => DEVICES, getGames: () => [], wake: async () => {}, forward: async () => 'ok', ping: async () => true,
+    getAvatar: async (d) => (asked.push(d.agent), d.agent.endsWith('1:8790') ? { type: 'image/png', bytes: png } : null),
+  })
+  t.after(() => s.close())
+  const url = `http://127.0.0.1:${s.port}`
+  const post = (body, token) => fetch(url + '/api/avatar', { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) })
+  const login = await (await fetch(url + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }) })).json()
+  assert.equal((await post({ device: 'laptop-a' })).status, 401)
+  assert.deepEqual(asked, [])
+  const ok = await post({ device: 'LAPTOP-A' }, login.token)
+  assert.equal(ok.status, 200)
+  assert.equal(ok.headers.get('content-type'), 'image/png')
+  assert.deepEqual(Buffer.from(await ok.arrayBuffer()), png)
+  assert.equal((await post({ device: 'laptop-b' }, login.token)).status, 204)
+  assert.equal((await post({ device: 'wake-only' }, login.token)).status, 204)
+  assert.equal((await post({ device: 'nobody' }, login.token)).status, 204)
+  assert.equal((await post({}, login.token)).status, 204)
+  assert.deepEqual(asked, ['http://100.1.1.1:8790', 'http://100.1.1.2:8790'])
+})
+
+test('the agent serves the Steam picture only with the token, and the hub side accepts only small png, jpeg or webp', async (t) => {
+  const { httpAvatar } = await import('../bridge/remote.mjs')
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47])
+  let pic = { type: 'image/png', bytes: png }
+  const s = await startAgent({ token: TOKEN, port: 0, host: '127.0.0.1', run: async () => 'ok', avatar: async () => pic })
+  t.after(() => s.close())
+  const url = `http://127.0.0.1:${s.port}`
+  assert.equal((await fetch(url + '/agent/avatar')).status, 401)
+  assert.equal((await fetch(url + '/agent/avatar', { headers: { 'x-agent-token': TOKEN } })).status, 200)
+  const get = httpAvatar(TOKEN)
+  assert.deepEqual((await get({ agent: url })).bytes, png)
+  pic = { type: 'image/svg+xml', bytes: Buffer.from('<svg onload=alert(1)>') }
+  assert.equal(await get({ agent: url }), null)
+  pic = { type: 'text/html', bytes: Buffer.from('<script>') }
+  assert.equal(await get({ agent: url }), null)
+  pic = { type: 'image/png', bytes: Buffer.alloc(2 * 1024 * 1024) }
+  assert.equal(await get({ agent: url }), null)
+  pic = null
+  assert.equal(await get({ agent: url }), null)
+  assert.equal(await httpAvatar('wrong-token-wrong-token-1234')({ agent: url }), null)
+})
+
+test('mode, cap and governor reach the page, and odd values from an agent are cleaned', async (t) => {
+  const { httpInfo } = await import('../bridge/remote.mjs')
+  const body = { ok: true, games: ['pubg'], buttons: [], model: 'ROG', steam: { user: 'A', playing: '', avatar: true }, mode: 'gaming', cap: { on: true, target: 999 }, governor: true }
+  const s = await startAgent({ token: TOKEN, port: 0, host: '127.0.0.1', run: async () => 'ok', info: () => body })
+  t.after(() => s.close())
+  const got = await httpInfo(TOKEN)({ agent: `http://127.0.0.1:${s.port}` })
+  assert.equal(got.mode, 'gaming')
+  assert.deepEqual(got.cap, { on: true, target: 85 })
+  assert.equal(got.governor, true)
+  assert.equal(got.steam.avatar, true)
+  Object.assign(body, { mode: 'turbo; calc', cap: 'x', governor: 'yes', steam: { user: 'B', avatar: 'true' } })
+  const odd = await httpInfo(TOKEN)({ agent: `http://127.0.0.1:${s.port}` })
+  assert.equal(odd.mode, '')
+  assert.equal(odd.cap, null)
+  assert.equal(odd.governor, false)
+  assert.equal(odd.steam.avatar, false)
 })

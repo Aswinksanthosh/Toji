@@ -43,3 +43,25 @@ The page shows one laptop at a time. A switch bar at the bottom has one button p
 
 ### Your own background pictures
 Put a picture at `C:\Users\<you>\.jarvis\art\rog.jpg` and/or `tuf.jpg` on the laptop that runs the phone page (the one with the password). PNG, JPG and WEBP work, up to 3 MB. It replaces the drawn character behind that laptop's mood, and it is only sent to the phone after the password. Use art you are allowed to use; the built-in characters are original drawings made for this project.
+
+## After you start a game
+Starting a game from the page brings its window to the front 2 minutes later (it waits until the game has loaded). A new start replaces the timer. Change the wait with `JARVIS_GAME_FOCUS_SECONDS` (0 turns it off). The **Show game** button does it right now. It picks the biggest window of a program inside a `steamapps\common` folder.
+
+## Modes and the graphics temperature cap
+The MODE block on each laptop has three modes and a cap switch:
+- **Power saving**: Windows power mode "best power efficiency", cap off.
+- **Balanced**: Windows power mode "balanced", cap off.
+- **Gaming**: Windows power mode "best performance" and the graphics temperature cap on (70 C).
+- **GPU temperature cap**: on its own, it keeps the card at or under the target by lowering its top clock when it is too hot and raising it again when it cools, never below 900 MHz. Set the target with `JARVIS_GPU_TARGET_C` (60 to 85, default 70).
+
+The cap needs a small background program with administrator rights (the same permission the `nvidia-smi -lgc` step needs). Set it up once per laptop: right-click `Setup-Governor.cmd`, choose **Run as administrator**. It adds a scheduled task that starts at every sign-in. Without it the page says so and the cap does nothing. Undo: `Setup-Governor.cmd remove`. The page remembers the cap state in `~/.jarvis/gpu-governor.json`, so the cap stays on across restarts until you switch it off. It works on NVIDIA cards (`nvidia-smi`).
+The page shows the mode Jarvis last set; it does not notice changes made somewhere else.
+
+ASUS **Silent / Performance / Turbo / Manual** (the fan key, Armoury Crate) cannot be switched from here: ASUS only exposes it through its own driver, and there is no supported command. If you keep Armoury Crate in Manual mode, the Windows mode above sits on top of it. Programs such as G-Helper replace Armoury Crate and can do more on the laptop itself.
+
+## Steam profile picture
+Each laptop's Steam panel shows the profile picture of the Steam user signed in on that laptop (Steam keeps a copy in its `config\avatarcache` folder). To use another picture, put it at `C:\Users\<you>\.jarvis\art\avatar.png` (or jpg or webp, up to 1 MB) on that laptop. Otherwise the panel shows the first letter of the name.
+
+## Games per laptop
+Run on each laptop (adds PUBG and Call of Duty; `cod` is the Steam hub that holds Warzone and Modern Warfare, add more ids the same way):
+`Set-Content "$HOME\.jarvis\games.json" '{ "pubg": 578080, "cod": 1938090 }'`
