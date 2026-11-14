@@ -13,9 +13,10 @@
 import { createServer } from 'node:http'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createPhoneAuth, isPrivateAddress } from './phone.mjs'
+import { REMOTE_ACTIONS } from './remote-actions.mjs'
 
 /** What an agent will do. Anything else is refused. */
-export const AGENT_ACTIONS = new Set(['steam_open', 'steam_bigpicture', 'steam_game', 'lock', 'sleep'])
+export const AGENT_ACTIONS = new Set(REMOTE_ACTIONS)
 export const HUB_ACTIONS = new Set(['wake', ...AGENT_ACTIONS])
 
 const MAX_BODY = 1024
@@ -59,8 +60,12 @@ const listen = (server, port, host) =>
 
 // -- agent ------------------------------------------------------------------------
 
-/** `run(action, { game })` does the action and returns a short message. */
-export async function startAgent({ token, port = 8790, host = '0.0.0.0', run, allowPublic = false }) {
+/**
+ * `run(action, { game, arg })` does the action and returns a short message (`game` and `arg`
+ * are the same value: a game, app or button name). `info()` says which games and buttons
+ * this laptop has, so the page can show them.
+ */
+export async function startAgent({ token, port = 8790, host = '0.0.0.0', run, info, allowPublic = false }) {
   const server = createServer(async (req, res) => {
     if (!allowPublic && !isPrivateAddress(req.socket.remoteAddress)) return json(res, 403, { error: 'Private networks only.' })
     // The token is checked before anything else, including the body.
@@ -68,12 +73,14 @@ export async function startAgent({ token, port = 8790, host = '0.0.0.0', run, al
     try {
       const path = (req.url ?? '/').split('?')[0]
       if (req.method === 'GET' && path === '/agent/ping') return json(res, 200, { ok: true })
+      if (req.method === 'GET' && path === '/agent/info') return json(res, 200, { ok: true, ...((await info?.()) ?? {}) })
       if (req.method === 'POST' && path === '/agent/do') {
-        const { action, game } = await readJson(req)
+        const { action, game, arg } = await readJson(req)
         if (!AGENT_ACTIONS.has(action)) return json(res, 400, { error: 'Unknown action.' })
-        const name = typeof game === 'string' ? game.slice(0, 60) : undefined
+        const given = typeof arg === 'string' ? arg : typeof game === 'string' ? game : undefined
+        const name = given?.slice(0, 60)
         try {
-          return json(res, 200, { ok: true, message: (await run(action, { game: name })) ?? 'Done.' })
+          return json(res, 200, { ok: true, message: (await run(action, { game: name, arg: name })) ?? 'Done.' })
         } catch (err) {
           return json(res, 502, { error: String(err?.message ?? err).slice(0, 160) })
         }
@@ -88,11 +95,11 @@ export async function startAgent({ token, port = 8790, host = '0.0.0.0', run, al
 }
 
 /** Talks to a laptop's agent over HTTP. */
-export const httpForward = (token) => async (device, action, game) => {
+export const httpForward = (token) => async (device, action, arg) => {
   const res = await fetch(`${device.agent}/agent/do`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-agent-token': token },
-    body: JSON.stringify({ action, game }),
+    body: JSON.stringify({ action, game: arg, arg }),
     signal: AbortSignal.timeout(10_000),
   })
   const body = await res.json().catch(() => ({}))
@@ -106,6 +113,19 @@ export const httpPing = (token) => async (device) => {
     return res.ok
   } catch {
     return false
+  }
+}
+
+/** The games and buttons a laptop's agent reports, or null if it does not answer. */
+export const httpInfo = (token) => async (device) => {
+  try {
+    const res = await fetch(`${device.agent}/agent/info`, { headers: { 'x-agent-token': token }, signal: AbortSignal.timeout(2500) })
+    if (!res.ok) return null
+    const body = await res.json()
+    const names = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string').map((x) => x.slice(0, 60)).slice(0, 60) : [])
+    return { games: names(body.games), buttons: names(body.buttons) }
+  } catch {
+    return null
   }
 }
 
@@ -133,6 +153,12 @@ button:disabled{opacity:.4}
 .msg{min-height:1.4em;color:#9be3a8;font-size:.9rem}
 .err{color:#ffb4a8}
 #login{margin:20vh auto 0;width:min(360px,90vw);display:flex;flex-direction:column;gap:12px}
+details.sec{border-top:1px solid #0c2a38;padding-top:6px}
+summary{cursor:pointer;color:#4fd0e6;padding:6px 0;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::before{content:'+ ';color:#4fd0e6}
+details[open]>summary::before{content:'- '}
+.msg{position:sticky;top:0;background:#020a12;padding:6px 0;z-index:1}
 [hidden]{display:none!important}
 </style></head><body>
 <header>REMOTE</header>
@@ -152,28 +178,46 @@ async function api(path,body){
 }
 function say(t,bad){const m=$('msg');m.textContent=t;m.className='msg'+(bad?' err':'')}
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e}
-async function act(device,action,game){
+async function act(device,action,arg){
   say('Sending…')
-  try{const j=await api('/api/do',{device,action,game});say(j.message||'Done.')}
+  try{const j=await api('/api/do',{device,action,arg});say(j.message||'Done.')}
   catch(err){if(err.status===401){token='';show()}say(err.message,true)}
   setTimeout(refresh,4000)
 }
 function btn(label,fn,disabled,sure){const b=el('button','',label);b.disabled=!!disabled;b.addEventListener('click',()=>{if(sure&&!confirm(sure))return;fn()});return b}
+const opened=new Set(),picked={}
+function section(key,title,kids){
+  const d=el('details','sec');d.open=opened.has(key)
+  d.addEventListener('toggle',()=>{if(d.open)opened.add(key);else opened.delete(key)})
+  d.append(el('summary','',title));const r=el('div','row');r.append(...kids);d.append(r);return d
+}
 function draw(data){
   const list=$('list');list.textContent=''
   for(const d of data.devices){
+    const n=d.name,c=!d.canControl
+    const go=(label,action,arg,sure)=>btn(label,()=>act(n,action,arg),c,sure)
     const card=el('div','card'+(d.awake?' on':''))
-    const top=el('div','top');top.append(el('span','dot'),el('span','',d.name),el('span','',d.awake?'awake':(d.canControl?'asleep or off':'')))
-    const r1=el('div','row');r1.append(
-      btn('Wake',()=>act(d.name,'wake'),!d.canWake),
-      btn('Steam',()=>act(d.name,'steam_open'),!d.canControl),
-      btn('Big Picture',()=>act(d.name,'steam_bigpicture'),!d.canControl))
-    const r2=el('div','row');const sel=el('select');for(const g of data.games){const o=el('option','',g);o.value=g;sel.append(o)}
-    r2.append(sel,btn('Start game',()=>act(d.name,'steam_game',sel.value),!d.canControl||!data.games.length))
-    const r3=el('div','row');r3.append(
-      btn('Lock',()=>act(d.name,'lock'),!d.canControl,'Lock '+d.name+'?'),
-      btn('Sleep',()=>act(d.name,'sleep'),!d.canControl,'Put '+d.name+' to sleep?'))
-    card.append(top,r1,r2,r3);list.append(card)
+    const top=el('div','top');top.append(el('span','dot'),el('span','',n),el('span','',d.awake?'awake':(d.canControl?'asleep or off':'')))
+    const r1=el('div','row');r1.append(btn('Wake',()=>act(n,'wake'),!d.canWake),go('Steam','steam_open'),go('Big Picture','steam_bigpicture'))
+    const games=d.games||data.games||[]
+    const r2=el('div','row');const sel=el('select')
+    for(const g of games){const o=el('option','',g);o.value=g;sel.append(o)}
+    if(picked[n]&&games.includes(picked[n]))sel.value=picked[n]
+    sel.addEventListener('change',()=>{picked[n]=sel.value})
+    r2.append(sel,btn('Start game',()=>act(n,'steam_game',sel.value),c||!games.length),go('Close game','close_game',undefined,'Close the running game on '+n+'?'))
+    const media=section(n+'|media','Media',[go('Prev','media_prev'),go('Play / pause','media_playpause'),go('Next','media_next'),go('Vol -','volume_down'),go('Mute','mute'),go('Vol +','volume_up')])
+    const apps=section(n+'|apps','Apps',[go('Discord','app','discord'),go('Spotify','app','spotify'),go('Epic','app','epic')])
+    const coding=[go('Start Ollama','ollama_start'),go('Stop Ollama','ollama_stop','', 'Stop Ollama on '+n+'?'),go('Start Jarvis','jarvis_start'),go('Update Jarvis','git_pull')]
+    for(const b of d.buttons||[])coding.push(go(b,'button',b,'Run "'+b+'" on '+n+'?'))
+    const code=section(n+'|code','Coding',coding)
+    const sys=section(n+'|sys','System',[
+      go('Status','status'),
+      go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?'),
+      go('Screen off','screen_off'),
+      go('Lock','lock',undefined,'Lock '+n+'?'),
+      go('Restart','restart',undefined,'Restart '+n+'? It comes back by itself in about a minute.'),
+      go('Sleep','sleep',undefined,'Sleep makes '+n+' unreachable from this phone until you press its power button. Sleep anyway?')])
+    card.append(top,r1,r2,media,apps,code,sys);list.append(card)
   }
 }
 async function refresh(){
@@ -192,9 +236,10 @@ show()
 
 /**
  * getDevices() returns { name: { mac, broadcast, agent } }, getGames() returns game names.
- * wake(device), forward(device, action, game) and ping(device) do the real work.
+ * wake(device), forward(device, action, arg) and ping(device) do the real work. If `info(device)`
+ * is given, it replaces ping and also gives each laptop's own games and buttons.
  */
-export async function startHub({ password, port = 8791, host = '0.0.0.0', getDevices, getGames, wake, forward, ping, allowPublic = false, now = Date.now }) {
+export async function startHub({ password, port = 8791, host = '0.0.0.0', getDevices, getGames, wake, forward, ping, info, allowPublic = false, now = Date.now }) {
   const auth = createPhoneAuth({ password, now })
 
   const server = createServer(async (req, res) => {
@@ -229,17 +274,18 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
 
         if (path === '/api/devices') {
           const list = await Promise.all(
-            Object.entries(devices).map(async ([name, d]) => ({
-              name,
-              canWake: Boolean(d.mac),
-              canControl: Boolean(d.agent),
-              awake: d.agent ? await ping(d) : null,
-            })),
+            Object.entries(devices).map(async ([name, d]) => {
+              const base = { name, canWake: Boolean(d.mac), canControl: Boolean(d.agent) }
+              if (!d.agent) return { ...base, awake: null }
+              if (!info) return { ...base, awake: await ping(d) }
+              const got = await info(d)
+              return got ? { ...base, awake: true, games: got.games ?? [], buttons: got.buttons ?? [] } : { ...base, awake: false }
+            }),
           )
           return json(res, 200, { devices: list, games: getGames() })
         }
 
-        const { device: name, action, game } = await readJson(req)
+        const { device: name, action, game, arg } = await readJson(req)
         const device = devices[String(name ?? '').toLowerCase()]
         if (!device) return json(res, 400, { error: 'Unknown device.' })
         if (!HUB_ACTIONS.has(action)) return json(res, 400, { error: 'Unknown action.' })
@@ -250,7 +296,8 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
             return json(res, 200, { message: 'Wake-up signal sent. Give it up to 30 seconds.' })
           }
           if (!device.agent) return json(res, 400, { error: 'This device has no agent address.' })
-          return json(res, 200, { message: await forward(device, action, typeof game === 'string' ? game : undefined) })
+          const given = typeof arg === 'string' ? arg : typeof game === 'string' ? game : undefined
+          return json(res, 200, { message: await forward(device, action, given?.slice(0, 60)) })
         } catch (err) {
           return json(res, 502, { error: String(err?.message ?? err).slice(0, 160) })
         }

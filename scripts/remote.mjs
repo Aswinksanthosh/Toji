@@ -4,7 +4,10 @@
 //   JARVIS_REMOTE_PASSWORD  (12+ chars) serves the phone page (the hub)
 // Devices come from ~/.jarvis/devices.json, games from ~/.jarvis/games.json.
 import { networkInterfaces } from 'node:os'
-import { httpForward, httpPing, startAgent, startHub } from '../bridge/remote.mjs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { httpForward, httpInfo, httpPing, startAgent, startHub } from '../bridge/remote.mjs'
+import { createRemoteActions } from '../bridge/remote-actions.mjs'
 import { knownDevices, sendMagicPacket } from '../bridge/wake.mjs'
 
 const password = process.env.JARVIS_REMOTE_PASSWORD ?? ''
@@ -34,22 +37,16 @@ const addresses = (port) =>
 
 if (token) {
   // Only a laptop does the things, so only then load the code that can.
-  const { runDesktop, runLaunch, steamGameUrl } = await import('../bridge/local.mjs')
-  const run = async (action, { game }) => {
-    if (action === 'steam_open') return (await runLaunch('steam://open/main'), 'Opening Steam.')
-    if (action === 'steam_bigpicture') return (await runLaunch('steam://open/bigpicture'), 'Opening Big Picture.')
-    if (action === 'steam_game') {
-      const url = steamGameUrl(game)
-      if (!url) throw new Error('That game is not in games.json on this laptop.')
-      await runLaunch(url)
-      return `Starting ${game}. It can take a minute to reach the menu.`
-    }
-    if (action === 'lock') return (await runDesktop('lock'), 'Locking.')
-    if (action === 'sleep') return (await runDesktop('sleep'), 'Going to sleep.')
-    throw new Error('Unknown action.')
-  }
-  await startAgent({ token, port: agentPort, run })
-  console.log(`[remote] agent ready on port ${agentPort}: this laptop can open Steam, start games, lock and sleep.`)
+  const { knownGames, runDesktop, runLaunch, steamGameUrl } = await import('../bridge/local.mjs')
+  const actions = createRemoteActions({
+    root: join(dirname(fileURLToPath(import.meta.url)), '..'),
+    launch: (target) => runLaunch(target),
+    desktop: (action) => runDesktop(action),
+    games: () => Object.keys(knownGames()),
+    gameUrl: (name) => steamGameUrl(name),
+  })
+  await startAgent({ token, port: agentPort, run: (action, { arg }) => actions.run(action, arg), info: actions.info })
+  console.log(`[remote] agent ready on port ${agentPort}: this laptop can open Steam, start games, media keys, apps, restart, lock and more.`)
 }
 
 if (password) {
@@ -62,6 +59,7 @@ if (password) {
     wake: (device) => sendMagicPacket(device.mac, { broadcast: device.broadcast }),
     forward: token ? httpForward(token) : async () => { throw new Error('No agent token is set on this hub.') },
     ping: token ? httpPing(token) : async () => false,
+    info: token ? httpInfo(token) : undefined,
   })
   console.log(`[remote] phone page on, password protected. On your phone open: ${addresses(hubPort) || `port ${hubPort}`}`)
 }

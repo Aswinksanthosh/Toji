@@ -37,6 +37,19 @@ test('the agent runs only its allow-listed actions', async (t) => {
   assert.deepEqual(seen.find(([a]) => a === 'steam_game'), ['steam_game', 'hades'])
 })
 
+test('the agent reports its games and buttons, and passes the name as game and arg', async (t) => {
+  const seen = []
+  const s = await startAgent({ token: TOKEN, port: 0, host: '127.0.0.1', run: async (a, p) => (seen.push([a, p]), 'ok'), info: () => ({ games: ['pubg'], buttons: ['tests'] }) })
+  t.after(() => s.close())
+  const url = `http://127.0.0.1:${s.port}`
+  const headers = { 'content-type': 'application/json', 'x-agent-token': TOKEN }
+  assert.equal((await fetch(url + '/agent/info')).status, 401)
+  assert.deepEqual(await (await fetch(url + '/agent/info', { headers })).json(), { ok: true, games: ['pubg'], buttons: ['tests'] })
+  await fetch(url + '/agent/do', { method: 'POST', headers, body: JSON.stringify({ action: 'button', arg: 'tests' }) })
+  await fetch(url + '/agent/do', { method: 'POST', headers, body: JSON.stringify({ action: 'steam_game', game: 'pubg' }) })
+  assert.deepEqual(seen, [['button', { game: 'tests', arg: 'tests' }], ['steam_game', { game: 'pubg', arg: 'pubg' }]])
+})
+
 test('a failing action gives a short error, and an oversized body is refused', async (t) => {
   const a = await agent(async () => { throw new Error('That game is not in games.json on this laptop.') })
   t.after(() => a.close())
@@ -129,4 +142,36 @@ test('five wrong passwords lock the hub out', async (t) => {
   t.after(() => h.close())
   for (let i = 0; i < 5; i++) await h.post('/login', { password: 'wrong' })
   assert.equal((await h.post('/login', { password: PASSWORD })).status, 429)
+})
+
+test('with info, the hub shows each laptop\'s own games and buttons, and awake means it answered', async (t) => {
+  const s = await startHub({
+    password: PASSWORD,
+    port: 0,
+    host: '127.0.0.1',
+    getDevices: () => DEVICES,
+    getGames: () => ['hub-game'],
+    wake: async () => {},
+    forward: async () => 'ok',
+    ping: async () => false,
+    info: async (d) => (d.agent.endsWith('1:8790') ? { games: ['hades'], buttons: ['tests'] } : null),
+  })
+  t.after(() => s.close())
+  const url = `http://127.0.0.1:${s.port}`
+  const login = await (await fetch(url + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }) })).json()
+  const body = await (await fetch(url + '/api/devices', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${login.token}` }, body: '{}' })).json()
+  const byName = Object.fromEntries(body.devices.map((d) => [d.name, d]))
+  assert.deepEqual(byName['laptop-a'], { name: 'laptop-a', canWake: true, canControl: true, awake: true, games: ['hades'], buttons: ['tests'] })
+  assert.deepEqual(byName['laptop-b'], { name: 'laptop-b', canWake: true, canControl: true, awake: false })
+  assert.deepEqual(byName['wake-only'], { name: 'wake-only', canWake: true, canControl: false, awake: null })
+})
+
+test('the hub passes the name as an argument and trims it', async (t) => {
+  const h = await hub()
+  t.after(() => h.close())
+  const token = await h.token()
+  await h.post('/api/do', { device: 'laptop-a', action: 'button', arg: 'x'.repeat(200) }, token)
+  await h.post('/api/do', { device: 'laptop-a', action: 'app', arg: 'discord' }, token)
+  assert.equal(h.log.forward[0][2].length, 60)
+  assert.deepEqual(h.log.forward[1], ['http://100.1.1.1:8790', 'app', 'discord'])
 })
