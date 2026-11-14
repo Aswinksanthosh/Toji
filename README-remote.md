@@ -16,3 +16,8 @@ A phone page with fixed buttons per device: Wake, Steam, Big Picture, Start game
 
 Wake needs the hub to be on the same network as the sleeping laptop. See `README-wake.md`.
 Private networks and Tailscale only. Password page, 5-try lockout.
+
+## One laptop, always on
+Keep the laptop awake with the screen off (plugged in, lid does nothing; a sleeping laptop cannot be reached). On it, run `Setup-Remote.cmd` (say `y` to serve the page), and list it in `devices.json` with only its own agent address, no MAC needed:
+`{ "laptop": { "agent": "http://127.0.0.1:8790" } }`
+Then run `Autostart-Remote.cmd` once: the buttons start hidden at every sign-in (about 50 MB of memory, no AI, no browser). `Autostart-Remote.cmd remove` undoes it. The page needs the laptop signed in.

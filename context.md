@@ -14,7 +14,7 @@ The owner's fork of an MIT-licensed browser voice assistant ("Jarvis"). A React 
 - `bridge/memory.mjs` — notes (capped, loaded every session) and a local conversation log searched by `recall`.
 - `bridge/google.mjs` — read-only Calendar and Gmail (optional login).
 - `bridge/phone.mjs`, `telegram.mjs`, `session.mjs` — phone access (password page over Wi-Fi or Tailscale; Telegram bot).
-- `bridge/remote.mjs`, `scripts/remote.mjs`, `Remote.cmd` — no-AI phone buttons (wake, Steam, game, lock, sleep): an agent per laptop plus a hub page. See `README-remote.md`.
+- `bridge/remote.mjs`, `scripts/remote.mjs`, `Remote.cmd` — no-AI phone buttons (wake, Steam, game, lock, sleep): an agent per laptop plus a hub page. `Autostart-Remote.cmd` starts them hidden at sign-in (Startup folder shortcut; only the light agent, never Jarvis/the model, so games keep full performance). See `README-remote.md`.
 - `src/config.ts` — page settings from `.env.local` (`VITE_*`). `src/App.tsx`, `src/ui/Hud.tsx` — the page.
 - `scripts/launch.ps1`, `start-limited.ps1`, `Jarvis*.cmd` — one-click Windows launchers and the graphics clock cap. `Jarvis-Local-Full.cmd` is the local brain with no cap (`JARVIS_GPU_CAP=0`).
 - `.env.example` documents every setting. `README-*.md` are the setup guides.
@@ -48,7 +48,8 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - Always-on setup (replaces wake): lid does nothing and no sleep on AC, screen off after 1 minute, power mode Best power efficiency, charge limit 80% in the maker's app (brand not yet known). Hibernate is not an option (an off laptop cannot be reached).
 - [ ] 8. Screen vision and Gemini app reading (`look_at_screen`, `ask_gemini`).
 - [ ] 9. Steam: fill `~/.jarvis/games.json`, test launching one game.
-- [ ] 10. Remote buttons: `Setup-Remote.cmd` on each laptop, test from the phone.
+- Decision: owner keeps the laptop awake and plugged in (battery capped at 80%), screen off, lid does nothing, because a sleeping laptop is unreachable and a shut-down one cannot be started remotely. No Telegram queue, no Wake-on-LAN for now. Jarvis (AI/local model) is never auto-started because it uses graphics memory that games need.
+- [ ] 10. Remote buttons (one laptop, `devices.json` entry with only `agent: http://127.0.0.1:8790`, then `Autostart-Remote.cmd`): `Setup-Remote.cmd` on each laptop, test from the phone.
 - [ ] 11. Wake-on-LAN helper (only if step 7 says it is needed).
 - [ ] 12. Try `qwen3:8b` as the local model.
 - [ ] 13. Build items from the backlog below (click allow-list, auto fallback to local, memory purge, HTTPS and phone mic, offline voice).
