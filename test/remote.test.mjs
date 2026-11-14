@@ -441,3 +441,21 @@ test('the page has a file picker and tapping the banner opens it', async (t) => 
   for (const part of ['id="pick"', 'accept="image/*"', '/api/gameart/upload', 'createImageBitmap', 'Change picture']) assert.ok(html.includes(part), part)
   assert.doesNotMatch(html, /innerHTML|eval\(|style="|onclick=|onchange=/)
 })
+
+test('stale reaches the page only as true', async (t) => {
+  const { httpInfo } = await import('../bridge/remote.mjs')
+  const body = { ok: true, games: [], version: 'aaaa111', stale: true }
+  const s = await startAgent({ token: TOKEN, port: 0, host: '127.0.0.1', run: async () => 'ok', info: () => body })
+  t.after(() => s.close())
+  const get = () => httpInfo(TOKEN)({ agent: `http://127.0.0.1:${s.port}` })
+  assert.equal((await get()).stale, true)
+  body.stale = 'yes'
+  assert.equal((await get()).stale, false)
+})
+
+test('the page tells you when newer files are waiting to be run', async (t) => {
+  const h = await hub()
+  t.after(() => h.close())
+  const html = await (await fetch(h.url + '/')).text()
+  assert.ok(html.includes('Newer files are installed but not running yet'))
+})

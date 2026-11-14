@@ -3,6 +3,7 @@
 //   JARVIS_AGENT_TOKEN      (24+ chars) lets this machine act as an agent, and the hub talk to agents
 //   JARVIS_REMOTE_PASSWORD  (12+ chars) serves the phone page (the hub)
 // Devices come from ~/.jarvis/devices.json, games from ~/.jarvis/games.json.
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir, networkInterfaces } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -39,8 +40,17 @@ const addresses = (port) =>
 if (token) {
   // Only a laptop does the things, so only then load the code that can.
   const { knownGames, runDesktop, runLaunch, steamGameUrl } = await import('../bridge/local.mjs')
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  // The version this program started with, so the page can tell when newer files are waiting to be run.
+  let runningHead = ''
+  try {
+    runningHead = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim()
+  } catch {
+    // Not a git folder: no version tracking.
+  }
   const actions = createRemoteActions({
-    root: join(dirname(fileURLToPath(import.meta.url)), '..'),
+    root,
+    runningHead,
     launch: (target) => runLaunch(target),
     desktop: (action) => runDesktop(action),
     games: () => Object.keys(knownGames()),

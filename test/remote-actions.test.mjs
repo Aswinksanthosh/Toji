@@ -452,7 +452,7 @@ test('update and restart: pulls, installs only if the dependency files changed, 
     spawnFn: (cmd, args, opts) => { const c = new EventEmitter(); c.unref = () => {}; spawned.push([cmd, args, opts]); return c },
   })
   const msg = await make(['bridge/remote.mjs', 'README-remote.md']).run('update_remote')
-  assert.match(msg, /Updated 2 files to bbbb111\. Restarting the remote/)
+  assert.match(msg, /Now running bbbb111 \(2 files changed\)\. Restarting the remote/)
   assert.ok(calls.some((c) => c[1].includes('--ff-only')))
   assert.ok(!calls.some((c) => c[0] === 'cmd.exe'))
   assert.equal(spawned.length, 1)
@@ -513,4 +513,50 @@ test('a failing command reports the real reason from its error output, not just 
   await assert.rejects(runCommand(process.execPath, ['-e', "console.error('error: the real reason'); process.exit(1)"]), /^Error: error: the real reason$/)
   await assert.rejects(runCommand('no-such-program-xyz', []), /ENOENT/)
   assert.equal(String(await runCommand(process.execPath, ['-e', "console.log('fine')"])).trim(), 'fine')
+})
+
+const OLD = 'aaaa111122223333aaaa111122223333aaaa1111'
+const NEW = 'bbbb111122223333bbbb111122223333bbbb1111'
+
+test('if the files were pulled by hand but the program was not restarted, Update & restart still restarts it', async () => {
+  const calls = []
+  const spawned = []
+  const a = createRemoteActions({
+    root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', runningHead: OLD,
+    run: async (f, args) => { calls.push(args); if (args.includes('rev-parse')) return NEW + '\n'; if (args.includes('diff')) return 'bridge/remote-page.mjs\nbridge/remote.mjs\n'; return '' },
+    spawnFn: (cmd, args) => { const c = new EventEmitter(); c.unref = () => {}; spawned.push([cmd, args]); return c },
+  })
+  assert.match(await a.run('update_remote'), /Now running bbbb111 \(2 files changed\)\. Restarting/)
+  assert.equal(spawned.length, 1)
+  // the changes are counted from what is RUNNING, not from what was already on disk
+  assert.deepEqual(calls.find((c) => c.includes('diff')), ['-C', ROOT, 'diff', '--name-only', OLD, NEW])
+  assert.ok(!calls.some((c) => c.includes('npm install')))
+})
+
+test('when what runs is what is on disk, there is nothing to restart', async () => {
+  const a = createRemoteActions({
+    root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', runningHead: NEW,
+    run: async (f, args) => (args.includes('rev-parse') ? NEW + '\n' : 'Already up to date.\n'),
+    spawnFn: () => { throw new Error('must not restart') },
+  })
+  assert.match(await a.run('update_remote'), /Already up to date/)
+})
+
+test('a stale program also installs new dependencies, counted from the running version', async () => {
+  const calls = []
+  const a = createRemoteActions({
+    root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', runningHead: OLD,
+    run: async (f, args, opts) => { calls.push([f, args, opts]); if (args.includes('rev-parse')) return NEW + '\n'; if (args.includes('diff')) return 'package-lock.json\n'; return '' },
+    spawnFn: () => { const c = new EventEmitter(); c.unref = () => {}; return c },
+  })
+  await a.run('update_remote')
+  assert.ok(calls.some((c) => c[0] === 'cmd.exe' && c[1].includes('npm install')))
+})
+
+test('the page version is the one that is running, and stale says newer files are waiting', async () => {
+  const make = (disk, running) => createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux', runningHead: running, run: async () => disk + '\n' })
+  assert.deepEqual(pick(await make('bbbb111', NEW).info()), { version: 'bbbb111', stale: false })
+  assert.deepEqual(pick(await make('bbbb111', OLD).info()), { version: 'aaaa111', stale: true })
+  assert.deepEqual(pick(await make('bbbb111', '').info()), { version: 'bbbb111', stale: undefined })
+  function pick(info) { return { version: info.version, stale: info.stale } }
 })

@@ -186,6 +186,7 @@ body[data-theme=tuf] .dd-btn,body[data-theme=tuf] .steam .b{border-radius:3px}
 .dd.open .dd-list{max-height:230px;overflow:auto;opacity:1;transform:none;visibility:visible}
 .dd-list li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;color:#dfeaf2}
 .thumb{flex:0 0 38px;width:38px;height:38px;border-radius:6px;background:#101822 center/cover no-repeat}
+.hint{font-size:.8rem;color:#ffcf8a}
 .gchip{position:absolute;top:8px;right:8px;z-index:3;font:inherit;font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;padding:5px 10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.3);border-radius:999px;color:#fff;cursor:pointer}
 .gbanner{position:relative;z-index:6;height:132px;border-radius:var(--r);animation:up .35s ease both}
 .gimg{position:absolute;inset:0;border-radius:var(--r);border:1px solid #2a475e;background:linear-gradient(135deg,#1b2838,#2a475e) center/cover no-repeat;overflow:hidden}
@@ -357,6 +358,7 @@ function drawPanel(d,anim){
   const st=el('span','chip');st.append(el('span','dot'),el('span','',d.awake?'awake':(d.canControl?'asleep or off':'no agent')));line.append(st)
   hero.append(line)
   if(d.model||d.version)hero.append(el('div','model',[d.model,d.version?'version '+d.version:''].filter(Boolean).join('  ·  ')))
+  if(d.stale)hero.append(el('div','hint','Newer files are installed but not running yet. Open Update this app and press Update & restart.'))
   const quick=el('div','glass row');quick.append(btn('Wake',()=>act(n,'wake'),!d.canWake),go('Lock','lock',undefined,'Lock '+n+'?'),go('Screen off','screen_off'))
   const steam=el('div','steam');steam.append(el('h3','','STEAM'))
   const head=el('div','sh'),txt=el('div','txt')

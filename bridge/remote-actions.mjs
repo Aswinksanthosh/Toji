@@ -247,6 +247,7 @@ export function createRemoteActions({
   gameUrl = () => null,
   buttonsFile,
   appsFile,
+  runningHead = '',
   stateFile = join(homedir(), '.jarvis', 'gpu-governor.json'),
   artDir = join(homedir(), '.jarvis', 'art'),
   targetC = Number(process.env.JARVIS_GPU_TARGET_C) || 70,
@@ -438,6 +439,14 @@ export function createRemoteActions({
     return `${m.name} mode.${cap ? ` Graphics temperature cap ${clampTarget(targetC)} °C is on.${await governorNote()}` : ' Graphics temperature cap is off.'}`
   }
 
+  // The version shown is the one that is RUNNING; `stale` says newer files are on disk but not running yet.
+  async function versionInfo() {
+    const disk = await gitVersion()
+    if (!/^[0-9a-f]{40}$/.test(runningHead)) return { version: disk }
+    const running = runningHead.slice(0, 7)
+    return { version: running, stale: disk !== '' && !runningHead.startsWith(disk) }
+  }
+
   let versionCache = { at: 0, value: '' }
   async function gitVersion() {
     if (Date.now() - versionCache.at < 20_000) return versionCache.value
@@ -463,8 +472,10 @@ export function createRemoteActions({
     await gitPull()
     const after = await head()
     versionCache.at = 0
-    if (before === after) return 'Already up to date. Nothing to restart.'
-    const changed = (await run('git', ['-C', root, 'diff', '--name-only', before, after])).split(/\r?\n/).filter(Boolean)
+    // What is running may be older than what is on disk (files pulled by hand, program not restarted).
+    const base = /^[0-9a-f]{40}$/.test(runningHead) ? runningHead : before
+    if (base === after) return 'Already up to date. Nothing to restart.'
+    const changed = (await run('git', ['-C', root, 'diff', '--name-only', base, after])).split(/\r?\n/).filter(Boolean)
     if (changed.some((f) => f === 'package.json' || f === 'package-lock.json')) {
       winOnly()
       await run('cmd.exe', ['/d', '/s', '/c', 'npm install'], { timeout: 180_000, cwd: root })
@@ -473,7 +484,7 @@ export function createRemoteActions({
     const child = spawnFn('powershell.exe', psArgs(restartRemoteScript(root, REMOTE_TASK)), { detached: true, stdio: 'ignore', windowsHide: true })
     child.once('error', () => {})
     child.unref?.()
-    return `Updated ${changed.length} file${changed.length === 1 ? '' : 's'} to ${after.slice(0, 7)}. Restarting the remote: reload this page in about 20 seconds.`
+    return `Now running ${after.slice(0, 7)} (${changed.length} file${changed.length === 1 ? '' : 's'} changed). Restarting the remote: reload this page in about 20 seconds.`
   }
 
   async function statusText() {
@@ -593,7 +604,7 @@ export function createRemoteActions({
       return {
         games: games(),
         buttons: Object.keys(knownButtons(buttonsFile)),
-        version: await gitVersion(),
+        ...(await versionInfo()),
         gameArt: games().filter((g) => gameArtFile(g)),
         apps: [...Object.keys(APPS), ...Object.keys(START_APPS), ...Object.keys(knownRemoteApps(appsFile))],
         model,
