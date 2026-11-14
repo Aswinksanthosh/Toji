@@ -534,3 +534,15 @@ test('the page has a password box for turning off, with a warning that the lapto
   for (const part of ['id="askpw"', 'type="password"', 'It will not come back until you press its power button', "'shutdown'", 'Cancel turn off']) assert.ok(html.includes(part), part)
   assert.doesNotMatch(html, /innerHTML|eval\(|style="|onclick=/)
 })
+
+test('risky buttons must be held, not tapped, and the page no longer uses browser pop-ups for them', async (t) => {
+  const h = await hub()
+  t.after(() => h.close())
+  const html = await (await fetch(h.url + '/')).text()
+  for (const part of ['HOLD_MS', "'pointerdown'", 'Keep holding to confirm', "b.title='Hold to confirm'", '.b.hold.holding::before']) assert.ok(html.includes(part), part)
+  // the generic button no longer calls confirm(); only the account switcher list still does
+  const btnCode = html.slice(html.indexOf('function btn('), html.indexOf('function acc('))
+  assert.doesNotMatch(btnCode, /confirm\(/)
+  // messages float over the page so a message never moves a button from under a finger
+  assert.match(html, /\.msg\{position:fixed;/)
+})

@@ -161,6 +161,11 @@ body[data-theme=rog] .b{background:linear-gradient(135deg,rgba(255,79,163,.45),r
 body[data-theme=tuf] .b{text-transform:uppercase;letter-spacing:.08em;font-weight:700;font-size:.86rem;border-left:3px solid var(--a);clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px)}
 .b:active{transform:scale(.95)}
 .b.ping{animation:ping .5s ease-out}
+.b.hold{position:relative;overflow:hidden;isolation:isolate;touch-action:manipulation;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.b.hold::before{content:'';position:absolute;inset:0;z-index:-1;background:var(--a);opacity:.6;transform:scaleX(0);transform-origin:left}
+.b.hold.holding::before{transform:scaleX(1);transition:transform .8s linear}
+.b.hold::after{content:'hold';margin-left:7px;font-size:.55rem;letter-spacing:.14em;text-transform:uppercase;opacity:.7}
+.b.hold.holding{transform:scale(.97)}
 .b:disabled{opacity:.38;cursor:default}
 .b:focus-visible,.dd-btn:focus-visible,.acc-h:focus-visible{outline:2px solid var(--a);outline-offset:2px}
 .steam{position:relative;z-index:5;background:linear-gradient(180deg,rgba(27,40,56,.62),rgba(20,26,34,.62));backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:1px solid #2a475e;border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:10px;color:#c7d5e0}
@@ -218,9 +223,9 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:14
 .tab.rog.active{background:linear-gradient(135deg,rgba(255,79,163,.55),rgba(150,70,255,.45))}
 .tab.tuf.active{background:linear-gradient(135deg,rgba(255,164,0,.42),rgba(40,30,8,.92))}
 .tab:active{transform:scale(.96)}
-.msg{position:sticky;top:8px;z-index:12;min-height:0;padding:0;margin:0 0 6px;color:#baf2c8;font-size:.9rem;opacity:0;transform:translateY(-6px);transition:opacity .3s,transform .3s}
-.msg.show{opacity:1;transform:none;padding:9px 12px;background:rgba(5,12,10,.82);border:1px solid rgba(120,230,160,.4);border-radius:12px}
-.msg.err{color:#ffc1b6;border-color:rgba(255,140,120,.5);background:rgba(20,6,4,.85)}
+.msg{position:fixed;top:10px;left:14px;right:14px;max-width:532px;margin:0 auto;z-index:30;pointer-events:none;padding:9px 12px;color:#baf2c8;font-size:.9rem;opacity:0;transform:translateY(-8px);transition:opacity .3s,transform .3s;background:rgba(5,12,10,.9);border:1px solid rgba(120,230,160,.4);border-radius:12px}
+.msg.show{opacity:1;transform:none}
+.msg.err{color:#ffc1b6;border-color:rgba(255,140,120,.5);background:rgba(20,6,4,.92)}
 #login{margin:22vh auto 0;width:min(360px,88vw);display:flex;flex-direction:column;gap:12px;animation:up .5s ease both}
 #login input,#askpw{font:inherit;color:#fff;background:rgba(8,18,26,.8);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
 #lerr,#askerr{color:#ffc1b6}
@@ -272,9 +277,27 @@ async function act(device,action,arg){
   catch(err){if(err.status===401){token='';show()}say(err.message,true)}
   setTimeout(refresh,4000)
 }
+const HOLD_MS=800
+function ping(b){b.classList.remove('ping');void b.offsetWidth;b.classList.add('ping')}
+// A button with a sure-text must be HELD (press and keep pressing) to fire; a quick tap only shows a hint.
 function btn(label,fn,disabled,sure,cls){
-  const b=el('button','b'+(cls?' '+cls:''),label);b.disabled=!!disabled
-  b.addEventListener('click',()=>{if(sure&&!confirm(sure))return;b.classList.remove('ping');void b.offsetWidth;b.classList.add('ping');fn()})
+  const b=el('button','b'+(cls?' '+cls:'')+(sure?' hold':''),label);b.disabled=!!disabled
+  if(!sure){b.addEventListener('click',()=>{ping(b);fn()});return b}
+  b.title='Hold to confirm';b.setAttribute('aria-label',label+' (hold to confirm)')
+  let timer=0
+  const start=()=>{
+    if(b.disabled||timer)return
+    b.classList.add('holding')
+    timer=setTimeout(()=>{timer=0;b.classList.remove('holding');ping(b);if(navigator.vibrate)navigator.vibrate(25);fn()},HOLD_MS)
+  }
+  const stop=()=>{if(timer){clearTimeout(timer);timer=0;b.classList.remove('holding');say('Keep holding to confirm: '+sure)}}
+  b.addEventListener('pointerdown',e=>{if(!e.button)start()})
+  for(const t of ['pointerup','pointercancel','pointerleave'])b.addEventListener(t,stop)
+  b.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&!e.repeat){e.preventDefault();start()}})
+  b.addEventListener('keyup',e=>{if(e.key==='Enter'||e.key===' ')stop()})
+  b.addEventListener('blur',stop)
+  b.addEventListener('contextmenu',e=>e.preventDefault())
+  b.addEventListener('click',e=>e.preventDefault())
   return b
 }
 function acc(key,title,kids){
