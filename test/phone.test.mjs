@@ -124,3 +124,21 @@ test('the warning banner appears only when the phone can control the laptop', as
   assert.match(html, /CONTROLS THE LAPTOP/)
   assert.doesNotMatch(html, /style="/)
 })
+
+test('confirming the password again makes no new login, and counts wrong tries like logging in does', () => {
+  let t = 1_000_000
+  const auth = createPhoneAuth({ password: PASSWORD, now: () => t })
+  assert.deepEqual(auth.confirm('10.0.0.5', PASSWORD), { ok: true })
+  assert.equal(auth.confirm('10.0.0.5', 'nope').status, 401)
+  assert.equal(auth.confirm('10.0.0.5', undefined).status, 401)
+  assert.equal(auth.confirm('10.0.0.5', PASSWORD).ok, true)
+  // a right password clears the wrong tries
+  for (let i = 0; i < 4; i++) auth.confirm('10.0.0.5', 'nope')
+  assert.equal(auth.confirm('10.0.0.5', PASSWORD).ok, true)
+  for (let i = 0; i < 5; i++) auth.confirm('10.0.0.5', 'nope')
+  assert.equal(auth.confirm('10.0.0.5', PASSWORD).status, 429)
+  assert.equal(auth.login('10.0.0.5', PASSWORD).status, 429)
+  assert.equal(auth.confirm('10.0.0.9', PASSWORD).ok, true)
+  t += 60 * 60 * 1000
+  assert.equal(auth.confirm('10.0.0.5', PASSWORD).ok, true)
+})

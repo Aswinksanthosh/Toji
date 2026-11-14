@@ -19,6 +19,8 @@ import { page } from './remote-page.mjs'
 /** What an agent will do. Anything else is refused. */
 export const AGENT_ACTIONS = new Set(REMOTE_ACTIONS)
 export const HUB_ACTIONS = new Set(['wake', ...AGENT_ACTIONS])
+/** Actions that need the password typed again, even in an unlocked session. */
+export const PASSWORD_ACTIONS = new Set(['shutdown'])
 
 const MAX_BODY = 1024
 const digest = (s) => createHash('sha256').update(String(s)).digest()
@@ -342,10 +344,15 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
           return json(res, 200, { devices: list, games: getGames(), art: artStore ? artStore.list() : [] })
         }
 
-        const { device: name, action, game, arg } = await readJson(req)
+        const { device: name, action, game, arg, password: again } = await readJson(req)
         const device = devices[String(name ?? '').toLowerCase()]
         if (!device) return json(res, 400, { error: 'Unknown device.' })
         if (!HUB_ACTIONS.has(action)) return json(res, 400, { error: 'Unknown action.' })
+        if (PASSWORD_ACTIONS.has(action)) {
+          if (typeof again !== 'string' || !again) return json(res, 403, { error: 'Enter the remote password to do this.' })
+          const confirmed = auth.confirm(ip, again)
+          if (!confirmed.ok) return json(res, confirmed.status, { error: confirmed.error })
+        }
         try {
           if (action === 'wake') {
             if (!device.mac) return json(res, 400, { error: 'This device has no wake-up address.' })

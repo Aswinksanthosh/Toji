@@ -486,3 +486,51 @@ test('the page has the Steam account switcher with a confirmation', async (t) =>
   const html = await (await fetch(h.url + '/')).text()
   for (const part of ['Switch Steam account', "'steam_switch'", 'Steam closes and starts again']) assert.ok(html.includes(part), part)
 })
+
+test('turning a laptop off needs the password again, even in an unlocked session; wrong tries count toward the lockout', async (t) => {
+  const { PASSWORD_ACTIONS } = await import('../bridge/remote.mjs')
+  assert.deepEqual([...PASSWORD_ACTIONS], ['shutdown'])
+  const h = await hub()
+  t.after(() => h.close())
+  const token = await h.token()
+  const off = (extra) => h.post('/api/do', { device: 'laptop-a', action: 'shutdown', ...extra }, token)
+  // no password at all: refused, nothing forwarded, and it does not count as a wrong try
+  for (let i = 0; i < 8; i++) assert.equal((await off({})).status, 403)
+  assert.equal((await off({ password: '' })).status, 403)
+  assert.equal((await off({ password: 5 })).status, 403)
+  assert.deepEqual(h.log.forward, [])
+  // wrong password: refused
+  const wrong = await off({ password: 'not-the-password' })
+  assert.equal(wrong.status, 401)
+  assert.match((await wrong.json()).error, /Wrong password/)
+  assert.deepEqual(h.log.forward, [])
+  // the right one goes through, once
+  const ok = await off({ password: PASSWORD })
+  assert.equal(ok.status, 200)
+  assert.deepEqual(h.log.forward, [['http://100.1.1.1:8790', 'shutdown', undefined]])
+  // other actions never ask
+  assert.equal((await h.post('/api/do', { device: 'laptop-a', action: 'restart' }, token)).status, 200)
+  assert.equal((await h.post('/api/do', { device: 'laptop-a', action: 'shutdown_cancel' }, token)).status, 200)
+  // without a session, the password alone is not enough
+  assert.equal((await h.post('/api/do', { device: 'laptop-a', action: 'shutdown', password: PASSWORD })).status, 401)
+  assert.equal(h.log.forward.length, 3)
+})
+
+test('five wrong passwords on the turn-off box lock the remote out for a while', async (t) => {
+  const h = await hub()
+  t.after(() => h.close())
+  const token = await h.token()
+  for (let i = 0; i < 5; i++) await h.post('/api/do', { device: 'laptop-a', action: 'shutdown', password: `wrong-${i}` }, token)
+  const locked = await h.post('/api/do', { device: 'laptop-a', action: 'shutdown', password: PASSWORD }, token)
+  assert.equal(locked.status, 429)
+  assert.deepEqual(h.log.forward, [])
+  assert.equal((await h.post('/login', { password: PASSWORD })).status, 429)
+})
+
+test('the page has a password box for turning off, with a warning that the laptop will not come back', async (t) => {
+  const h = await hub()
+  t.after(() => h.close())
+  const html = await (await fetch(h.url + '/')).text()
+  for (const part of ['id="askpw"', 'type="password"', 'It will not come back until you press its power button', "'shutdown'", 'Cancel turn off']) assert.ok(html.includes(part), part)
+  assert.doesNotMatch(html, /innerHTML|eval\(|style="|onclick=/)
+})

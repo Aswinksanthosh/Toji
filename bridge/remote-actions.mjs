@@ -68,6 +68,8 @@ export const REMOTE_ACTIONS = [
   'lock',
   'sleep',
   'restart',
+  'shutdown',
+  'shutdown_cancel',
   'screen_off',
   'close_game',
   'game_mode',
@@ -390,7 +392,17 @@ export function createRemoteActions({
       case 'restart':
         winOnly()
         await run('shutdown.exe', ['/r', '/t', '10', '/c', 'Restart from the phone'])
-        return 'Restarting in 10 seconds. It comes back on its own. To cancel, run: shutdown /a'
+        return 'Restarting in 10 seconds. It comes back on its own. To stop it, press Cancel turn off.'
+      case 'shutdown':
+        winOnly()
+        await run('shutdown.exe', ['/s', '/t', '15', '/c', 'Turned off from the phone'])
+        return 'Turning off in 15 seconds. It will not come back until you press its power button. To stop it, press Cancel turn off now.'
+      case 'shutdown_cancel':
+        winOnly()
+        await run('shutdown.exe', ['/a']).catch(() => {
+          throw new Error('There is no turn off or restart waiting to be cancelled.')
+        })
+        return 'Cancelled. The laptop stays on.'
       case 'screen_off':
         await ps(SCREEN_OFF)
         return 'Screen off. Moving the mouse turns it back on.'

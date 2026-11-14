@@ -222,8 +222,13 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:14
 .msg.show{opacity:1;transform:none;padding:9px 12px;background:rgba(5,12,10,.82);border:1px solid rgba(120,230,160,.4);border-radius:12px}
 .msg.err{color:#ffc1b6;border-color:rgba(255,140,120,.5);background:rgba(20,6,4,.85)}
 #login{margin:22vh auto 0;width:min(360px,88vw);display:flex;flex-direction:column;gap:12px;animation:up .5s ease both}
-#login input{font:inherit;color:#fff;background:rgba(8,18,26,.8);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
-#lerr{color:#ffc1b6}
+#login input,#askpw{font:inherit;color:#fff;background:rgba(8,18,26,.8);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+#lerr,#askerr{color:#ffc1b6}
+.ask{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px;animation:up .25s ease both}
+.askbox{width:min(360px,100%);background:#0b141c;border:1px solid var(--line);border-radius:var(--r);padding:18px;display:flex;flex-direction:column;gap:12px}
+.askbox h2{margin:0;font-size:1.15rem}
+.askbox p{margin:0;color:#c9dbe2;font-size:.92rem}
+body[data-theme] .b.danger,body[data-theme] .askbox .b.danger{background:linear-gradient(#c0392b,#8e2a1f);border-color:#ff7a66;color:#fff;box-shadow:0 4px 14px rgba(255,90,70,.25)}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style></head><body data-theme="plain">
@@ -235,6 +240,11 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:14
 <form id="login" autocomplete="off"><label for="pw">Password</label>
 <input id="pw" type="password" autocomplete="current-password" required><button class="b">Unlock</button><div id="lerr"></div></form>
 <input type="file" id="pick" accept="image/*" hidden>
+<div id="ask" class="ask" hidden><form id="askform" class="askbox" autocomplete="off">
+<h2 id="asktitle">Turn off?</h2><p id="asktext"></p>
+<input id="askpw" type="password" autocomplete="current-password" placeholder="Remote password" required>
+<div class="row"><button type="button" id="askcancel" class="b">Cancel</button><button class="b danger">Turn off</button></div>
+<div id="askerr"></div></form></div>
 <main id="app" hidden><div id="msg" class="msg"></div><div id="panel" class="panel"></div></main>
 <nav class="tabs" id="tabs" hidden></nav>
 <script nonce="${nonce}">
@@ -396,7 +406,7 @@ function drawPanel(d,anim){
     acc(n+'|apps','Open apps',[appMenu(d)]),
     acc(n+'|code','Coding',coding),
     acc(n+'|upd','Update this app',[go('Git pull','git_pull'),go('Update & restart','update_remote',undefined,'Update '+n+' and restart its remote? Reload this page in about 20 seconds.')]),
-    acc(n+'|sys','System',[go('Status','status'),go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?'),go('Restart','restart',undefined,'Restart '+n+'? It comes back by itself in about a minute.'),go('Sleep','sleep',undefined,'Sleep makes '+n+' unreachable from this phone until you press its power button. Sleep anyway?')]))
+    acc(n+'|sys','System',[go('Status','status'),go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?'),go('Restart','restart',undefined,'Restart '+n+'? It comes back by itself in about a minute.'),go('Sleep','sleep',undefined,'Sleep makes '+n+' unreachable from this phone until you press its power button. Sleep anyway?'),go('Cancel turn off','shutdown_cancel'),btn('Turn off',()=>askPassword(n),c,undefined,'danger')]))
   p.append(hero,quick,steam,more)
   for(const g of games)paintGame(gaKey(n,g))
 }
@@ -457,6 +467,27 @@ function show(){
   if(!token){document.body.dataset.theme='plain';return}
   refresh();loadArt();timer=setInterval(refresh,10000)
 }
+let askFor=''
+function askPassword(device){
+  askFor=device;$('asktitle').textContent='Turn off '+device+'?'
+  $('asktext').textContent='It will not come back until you press its power button. Enter the remote password to confirm.'
+  $('askerr').textContent='';$('askpw').value='';$('ask').hidden=false;setTimeout(()=>$('askpw').focus(),60)
+}
+function closeAsk(){$('ask').hidden=true;$('askpw').value='';askFor=''}
+$('askcancel').addEventListener('click',closeAsk)
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('ask').hidden)closeAsk()})
+$('askform').addEventListener('submit',async e=>{
+  e.preventDefault();$('askerr').textContent=''
+  const pw=$('askpw').value,dev=askFor;if(!pw||!dev)return
+  try{
+    const j=await api('/api/do',{device:dev,action:'shutdown',password:pw})
+    closeAsk();say(j.message||'Done.');setTimeout(refresh,4000)
+  }catch(err){
+    $('askpw').value=''
+    if(err.message==='Please unlock again.'){closeAsk();token='';show();return}
+    $('askerr').textContent=err.message
+  }
+})
 $('pick').addEventListener('change',async()=>{
   const f=$('pick').files&&$('pick').files[0];if(!f||!pickGame)return
   const g=pickGame;say('Saving the picture…')

@@ -674,3 +674,15 @@ test('close game says what it closed and what refused to close', async () => {
   assert.equal(await run('TslGame\r\nBEService\r\n!TslGame\r\n').run('close_game'), 'Closed: BEService. Could not close: TslGame (protected or still saving). Close it in the game.')
   assert.match(await run('TslGame\r\n!TslGame\r\n').run('close_game'), /^Could not close: TslGame/)
 })
+
+test('turn off waits 15 seconds and can be cancelled; cancelling with nothing waiting says so', async () => {
+  const { actions, calls } = setup()
+  assert.match(await actions.run('shutdown'), /Turning off in 15 seconds\. It will not come back until you press its power button/)
+  assert.deepEqual(calls.run.at(-1), ['shutdown.exe', ['/s', '/t', '15', '/c', 'Turned off from the phone']])
+  assert.match(await actions.run('shutdown_cancel'), /^Cancelled/)
+  assert.deepEqual(calls.run.at(-1), ['shutdown.exe', ['/a']])
+  const none = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', run: async () => { throw new Error('1116') } })
+  await assert.rejects(none.run('shutdown_cancel'), /no turn off or restart waiting/)
+  const linux = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux' })
+  await assert.rejects(linux.run('shutdown'), /Windows only/)
+})

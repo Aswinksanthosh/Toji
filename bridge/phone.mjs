@@ -56,25 +56,37 @@ export function createPhoneAuth({ password, now = Date.now }) {
   const tokens = new Map() // token -> expires
   const fails = new Map() // ip -> { count, first, lockedUntil }
 
+  /** Checks a password with the same wrong-try counting and lockout as logging in. Returns { ok } or { error, status }. */
+  function check(ip, given) {
+    const t = now()
+    const f = fails.get(ip)
+    if (f?.lockedUntil > t) return { error: 'Too many wrong tries. Wait a few minutes.', status: 429 }
+    if (!sameSecret(given ?? '', password)) {
+      const rec = f && t - f.first < FAIL_WINDOW_MS ? f : { count: 0, first: t, lockedUntil: 0 }
+      rec.count++
+      if (rec.count >= MAX_FAILS) rec.lockedUntil = t + LOCKOUT_MS
+      fails.set(ip, rec)
+      return { error: 'Wrong password.', status: 401 }
+    }
+    fails.delete(ip)
+    return { ok: true }
+  }
+
   return {
     /** Returns { token } or { error, status }. */
     login(ip, given) {
+      const checked = check(ip, given)
+      if (!checked.ok) return checked
       const t = now()
-      const f = fails.get(ip)
-      if (f?.lockedUntil > t) return { error: 'Too many wrong tries. Wait a few minutes.', status: 429 }
-      if (!sameSecret(given ?? '', password)) {
-        const rec = f && t - f.first < FAIL_WINDOW_MS ? f : { count: 0, first: t, lockedUntil: 0 }
-        rec.count++
-        if (rec.count >= MAX_FAILS) rec.lockedUntil = t + LOCKOUT_MS
-        fails.set(ip, rec)
-        return { error: 'Wrong password.', status: 401 }
-      }
-      fails.delete(ip)
       for (const [k, exp] of tokens) if (exp <= t) tokens.delete(k)
       while (tokens.size >= MAX_TOKENS) tokens.delete(tokens.keys().next().value)
       const token = randomBytes(24).toString('base64url')
       tokens.set(token, t + TOKEN_LIFETIME_MS)
       return { token }
+    },
+    /** For actions that need the password again (no new login is made). Returns { ok } or { error, status }. */
+    confirm(ip, given) {
+      return check(ip, given)
     },
     valid(token) {
       const exp = tokens.get(String(token ?? ''))
