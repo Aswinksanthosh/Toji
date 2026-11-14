@@ -103,6 +103,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 `node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (230 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
 
 ## Git
+History was rewritten once on 2026-11-14 (at the owner's request) to remove a first name, a Tailscale address and two stray `c:/` test files from older commits; every commit hash changed. Each laptop's copy was re-synced with `git fetch` then `git reset --hard origin/main` (safe: no code is edited on the laptops). Do not rewrite history again without the owner's approval.
 Work on `main` of the owner's fork. One commit per change, with the attribution lines the session gives. Do not force-push without approval, and do not open a pull request unless asked.
 
 ## Do not commit here
