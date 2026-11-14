@@ -197,6 +197,12 @@ body[data-theme=tuf] .dd-btn,body[data-theme=tuf] .steam .b{border-radius:3px}
 .acc.open .acc-b{grid-template-rows:1fr}
 .acc-in{overflow:hidden;min-height:0}
 .acc-in .row{padding:2px 0 14px}
+.appmenu{display:flex;gap:8px;align-items:flex-start;padding:2px 0 14px;flex-wrap:wrap}
+.appmenu .dd{flex:1 1 60%}
+.appmenu .dd-list{position:static;padding:0;border-width:0;margin-top:0}
+.appmenu .dd.open .dd-list{padding:4px;border-width:1px;margin-top:6px}
+.appmenu .dd-btn{background:rgba(10,16,22,.85)}
+.appmenu .b.go{background:linear-gradient(#75b022,#588a1b);border-color:#8fd02a;color:#fff}
 nav.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:14px 14px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.78) 38%);z-index:20}
 .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font:inherit;color:#d8e8ee;padding:10px 8px;cursor:pointer;background:rgba(10,16,22,.82);border:1px solid rgba(255,255,255,.14);transition:transform .25s,background .25s,border-color .25s,box-shadow .3s}
 .tab .nm{font-weight:700;display:flex;align-items:center;gap:7px}
@@ -229,7 +235,9 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:14
 <script nonce="${nonce}">
 const $=id=>document.getElementById(id)
 let token='',timer=0,data=null,active='',lastSig='',msgTimer=0,dir=''
-const opened=new Set(),picked={},seen={}
+const opened=new Set(),picked={},seen={},pickedApp={}
+const APP_LABELS={discord:'Discord',spotify:'Spotify',epic:'Epic Games',claude:'Claude',glidex:'ASUS GlideX'}
+const appLabel=k=>APP_LABELS[k]||k.charAt(0).toUpperCase()+k.slice(1)
 try{token=sessionStorage.getItem('t')||'';active=sessionStorage.getItem('dev')||''}catch(e){}
 async function api(path,body){
   const h={'content-type':'application/json'};if(token)h.authorization='Bearer '+token
@@ -287,6 +295,14 @@ async function ensureAvatar(d,av){
     if(r.status===200){avatars[k]=URL.createObjectURL(await r.blob());for(const a of document.querySelectorAll('.avatar'))if(a.dataset.key===k)paintAvatar(a,avatars[k])}
   }catch(e){delete avatars[k]}
 }
+function appMenu(d){
+  const n=d.name,c=!d.canControl,keys=d.apps&&d.apps.length?d.apps:['discord','spotify','epic','claude','glidex']
+  if(!keys.includes(pickedApp[n]))pickedApp[n]=keys[0]
+  const labels={};for(const k of keys)labels[appLabel(k)]=k
+  const wrap=el('div','appmenu')
+  wrap.append(dropdown(Object.keys(labels),appLabel(pickedApp[n]),v=>{pickedApp[n]=labels[v]},c),btn('Open',()=>act(n,'app',pickedApp[n]),c,undefined,'go'))
+  return wrap
+}
 function themeOf(d){
   if(d.theme==='rog'||d.theme==='tuf')return d.theme
   const m=d.model||''
@@ -343,7 +359,7 @@ function drawPanel(d,anim){
   const more=el('div','glass')
   more.append(
     acc(n+'|media','Media',[go('Prev','media_prev'),go('Play / pause','media_playpause'),go('Next','media_next'),go('Vol -','volume_down'),go('Mute','mute'),go('Vol +','volume_up')]),
-    acc(n+'|apps','Apps',[go('Discord','app','discord'),go('Spotify','app','spotify'),go('Epic','app','epic')]),
+    acc(n+'|apps','Open apps',[appMenu(d)]),
     acc(n+'|code','Coding',coding),
     acc(n+'|sys','System',[go('Status','status'),go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?'),go('Restart','restart',undefined,'Restart '+n+'? It comes back by itself in about a minute.'),go('Sleep','sleep',undefined,'Sleep makes '+n+' unreachable from this phone until you press its power button. Sleep anyway?')]))
   p.append(hero,quick,modes,steam,more)

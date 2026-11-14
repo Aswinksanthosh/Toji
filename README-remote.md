@@ -3,7 +3,7 @@
 A phone page with fixed buttons per device. The main row is always visible: Wake, Steam, Big Picture, Start game (that laptop's own `games.json`), Close game. Four folding sections hold the rest:
 
 - **Media**: previous, play/pause, next, volume down, mute, volume up.
-- **Apps**: Discord, Spotify, Epic.
+- **Open apps**: a drop-down and an Open button. Built in: Discord, Spotify, Epic Games, Claude and ASUS GlideX (the last two are found by name in the laptop's Start menu, so they must be installed on that laptop). Add your own, see below.
 - **Coding**: start or stop Ollama, start Jarvis (local), update Jarvis (`git pull`), and your own named buttons.
 - **System**: status (graphics card temperature, battery, uptime), game mode (stops Jarvis and unloads the local models, never your other projects), screen off, lock, restart (comes back by itself), sleep.
 
@@ -65,3 +65,8 @@ Each laptop's Steam panel shows the profile picture of the Steam user signed in 
 ## Games per laptop
 Run on each laptop (adds PUBG and Call of Duty; `cod` is the Steam hub that holds Warzone and Modern Warfare, add more ids the same way):
 `Set-Content "$HOME\.jarvis\games.json" '{ "pubg": 578080, "cod": 1938090 }'`
+
+## More apps in the Open apps menu
+Create `C:\Users\<you>\.jarvis\remote-apps.json` on a laptop: the button name, and the app's name exactly as the Start menu shows it:
+`{ "vs code": "Visual Studio Code", "obs": "OBS Studio" }`
+To see the exact names on a laptop, run: `Get-StartApps | Select-Object Name`. The phone only sends the button name; it can never open anything that is not in this file or the built-in list. Built-in names cannot be replaced.

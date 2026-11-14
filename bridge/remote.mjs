@@ -135,7 +135,7 @@ export const httpInfo = (token) => async (device) => {
     const steam = body.steam && typeof body.steam === 'object' ? { user: text(body.steam.user, 40), playing: text(body.steam.playing, 40), avatar: body.steam.avatar === true } : null
     const mode = ['saver', 'balanced', 'gaming'].includes(body.mode) ? body.mode : ''
     const cap = body.cap && typeof body.cap === 'object' ? { on: body.cap.on === true, target: Math.min(Math.max(Number(body.cap.target) || 70, 60), 85) } : null
-    return { games: names(body.games), buttons: names(body.buttons), model: text(body.model, 40), steam, mode, cap, governor: body.governor === true }
+    return { games: names(body.games), buttons: names(body.buttons), apps: names(body.apps), model: text(body.model, 40), steam, mode, cap, governor: body.governor === true }
   } catch {
     return null
   }
@@ -236,6 +236,7 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
                 awake: true,
                 games: got.games ?? [],
                 buttons: got.buttons ?? [],
+                ...(got.apps?.length ? { apps: got.apps } : {}),
                 ...(got.model ? { model: got.model } : {}),
                 ...(got.steam ? { steam: got.steam } : {}),
                 ...(got.mode ? { mode: got.mode } : {}),

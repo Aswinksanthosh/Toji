@@ -21,6 +21,28 @@ import { dirname, join } from 'node:path'
 /** Apps the phone may open, by a fixed address each. */
 export const APPS = { discord: 'discord://', spotify: 'spotify:', epic: 'com.epicgames.launcher://apps' }
 
+/** Apps found by their name in the Start menu (Store apps have no simple address). `*` matches anything. */
+export const START_APPS = { claude: 'Claude', glidex: '*Glide*X*' }
+
+/** Apps you add yourself: { "name on the button": "exact name in the Start menu" }. Odd entries are ignored. */
+export function knownRemoteApps(file = join(homedir(), '.jarvis', 'remote-apps.json')) {
+  const out = {}
+  try {
+    const raw = JSON.parse(readFileSync(file, 'utf8'))
+    for (const [name, v] of Object.entries(raw)) {
+      const key = String(name).toLowerCase().trim()
+      const target = typeof v === 'string' ? v.trim() : ''
+      // eslint-disable-next-line no-control-regex -- control characters are rejected on purpose
+      if (!key || key.length > 30 || !target || target.length > 60 || /[\u0000-\u001f]/.test(key + target)) continue
+      if (Object.hasOwn(APPS, key) || Object.hasOwn(START_APPS, key)) continue
+      out[key] = target
+    }
+  } catch {
+    // No file: only the built-in apps.
+  }
+  return out
+}
+
 /** Virtual key code and how many times to press it. */
 const KEYS = {
   volume_up: [0xaf, 5],
@@ -151,6 +173,10 @@ if ($g) {
   $g.ProcessName
 }`
 
+const startAppScript = (name, exact) => String.raw`$n = ${psQuote(name)}
+$a = Get-StartApps | Where-Object { ${exact ? '$_.Name -eq $n' : '$_.Name -like $n'} } | Select-Object -First 1
+if ($a) { Start-Process explorer.exe ("shell:AppsFolder\" + $a.AppID); $a.Name }`
+
 const MODEL = String.raw`Get-CimInstance Win32_ComputerSystem | ForEach-Object { "$($_.Manufacturer)|$($_.Model)" }`
 
 /** "ROG Strix G614JV_G614JV" -> "ROG Strix G614JV". Only a name to show, never used for anything else. */
@@ -193,6 +219,7 @@ export function createRemoteActions({
   gameIds = () => ({}),
   gameUrl = () => null,
   buttonsFile,
+  appsFile,
   stateFile = join(homedir(), '.jarvis', 'gpu-governor.json'),
   artDir = join(homedir(), '.jarvis', 'art'),
   targetC = Number(process.env.JARVIS_GPU_TARGET_C) || 70,
@@ -299,9 +326,16 @@ export function createRemoteActions({
         return statusText()
       case 'app': {
         const key = String(arg ?? '').toLowerCase().trim()
-        if (!Object.hasOwn(APPS, key)) throw new Error('Unknown app.')
-        await launch(APPS[key])
-        return `Opening ${key}.`
+        if (Object.hasOwn(APPS, key)) {
+          await launch(APPS[key])
+          return `Opening ${key}.`
+        }
+        const custom = knownRemoteApps(appsFile)
+        const found = Object.hasOwn(START_APPS, key) ? { name: START_APPS[key], exact: false } : Object.hasOwn(custom, key) ? { name: custom[key], exact: true } : null
+        if (!found) throw new Error('Unknown app.')
+        const opened = (await ps(startAppScript(found.name, found.exact))).trim().split(/\r?\n/)[0]
+        if (!opened) throw new Error(`${key} was not found in the Start menu on this laptop.`)
+        return `Opening ${opened}.`
       }
       case 'button':
         return runButton(arg)
@@ -474,7 +508,7 @@ export function createRemoteActions({
       return {
         games: games(),
         buttons: Object.keys(knownButtons(buttonsFile)),
-        apps: Object.keys(APPS),
+        apps: [...Object.keys(APPS), ...Object.keys(START_APPS), ...Object.keys(knownRemoteApps(appsFile))],
         model,
         steam: steam ? { user: steam.user, playing: steam.playing, avatar: Boolean(avatarFile(steam)) } : null,
         mode: state.mode,

@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
-import { APPS, REMOTE_ACTIONS, cleanModel, createRemoteActions, knownButtons, parseSteamLogin, parseSteamUser } from '../bridge/remote-actions.mjs'
+import { APPS, REMOTE_ACTIONS, START_APPS, cleanModel, createRemoteActions, knownButtons, knownRemoteApps, parseSteamLogin, parseSteamUser } from '../bridge/remote-actions.mjs'
 
 const ROOT = 'C:\\Users\\me\\Toji'
 
@@ -59,6 +59,42 @@ test('steam: a game must be in the list, apps must be in the fixed list', async 
   await assert.rejects(actions.run('app', 'calc.exe'), /Unknown app/)
   await assert.rejects(actions.run('app', '__proto__'), /Unknown app/)
   await assert.rejects(actions.run('app', 'toString'), /Unknown app/)
+})
+
+test('Claude and ASUS GlideX open through the Start menu by name, and your own apps need an exact name', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'apps-'))
+  const appsFile = join(dir, 'remote-apps.json')
+  writeFileSync(appsFile, JSON.stringify({ 'My Editor': 'Visual Studio Code', discord: 'Evil', bad: 'x\ny', "Quote's": "it's *" }))
+  const scripts = []
+  const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, appsFile, platform: 'win32', run: async (f, args) => { scripts.push(decode(args)); return 'Claude\r\n' } })
+  assert.equal(await a.run('app', 'Claude'), 'Opening Claude.')
+  assert.match(scripts[0], /Get-StartApps/)
+  assert.match(scripts[0], /\$n = 'Claude'/)
+  assert.match(scripts[0], /-like \$n/)
+  await a.run('app', 'glidex')
+  assert.match(scripts[1], /\$n = '\*Glide\*X\*'/)
+  await a.run('app', 'my editor')
+  assert.match(scripts[2], /\$n = 'Visual Studio Code'/)
+  assert.match(scripts[2], /-eq \$n/)
+  assert.doesNotMatch(scripts[2], /-like/)
+  await a.run('app', "quote's")
+  assert.match(scripts[3], /\$n = 'it''s \*'/)
+  assert.match(scripts[3], /-eq \$n/)
+  await assert.rejects(a.run('app', 'bad'), /Unknown app/)
+  await assert.rejects(a.run('app', 'notepad'), /Unknown app/)
+  assert.equal(scripts.length, 4)
+  assert.deepEqual((await a.info()).apps, ['discord', 'spotify', 'epic', 'claude', 'glidex', 'my editor', "quote's"])
+  const none = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, appsFile, platform: 'win32', run: async () => '' })
+  await assert.rejects(none.run('app', 'claude'), /not found in the Start menu/)
+})
+
+test('the remote-apps file is read safely, and built-in names cannot be replaced', () => {
+  assert.deepEqual(knownRemoteApps(join(tmpdir(), 'nope-remote-apps.json')), {})
+  assert.deepEqual(Object.keys(START_APPS), ['claude', 'glidex'])
+  const dir = mkdtempSync(join(tmpdir(), 'apps-'))
+  const f = join(dir, 'a.json')
+  writeFileSync(f, JSON.stringify({ Ok: 'Some App', claude: 'x', spotify: 'y', long: 'z'.repeat(80), ['n'.repeat(40)]: 'a', num: 5 }))
+  assert.deepEqual(knownRemoteApps(f), { ok: 'Some App' })
 })
 
 test('volume and media keys press the right key the right number of times', async () => {
@@ -210,7 +246,7 @@ test('info lists games, button names, apps, the model and the Steam user with th
   })
   const info = await a.info()
   assert.deepEqual(info, {
-    games: ['pubg'], buttons: ['my tests'], apps: ['discord', 'spotify', 'epic'],
+    games: ['pubg'], buttons: ['my tests'], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'],
     model: 'ROG Strix G614JV', steam: { user: 'Current Name', playing: 'pubg', avatar: false },
     mode: '', cap: { on: false, target: 70 }, governor: true,
   })
@@ -219,7 +255,7 @@ test('info lists games, button names, apps, the model and the Steam user with th
 
 test('info works with no Steam and no model (other systems, or a slow answer)', async () => {
   const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux', capEnabled: true, stateFile: 'none.json', readText: () => { throw new Error('none') } })
-  assert.deepEqual(await a.info(), { games: [], buttons: [], apps: ['discord', 'spotify', 'epic'], model: '', steam: null, mode: '', cap: { on: false, target: 70 }, governor: false })
+  assert.deepEqual(await a.info(), { games: [], buttons: [], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'], model: '', steam: null, mode: '', cap: { on: false, target: 70 }, governor: false })
   const b = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, run: async () => { throw new Error('x') }, platform: 'win32' })
   const info = await b.info()
   assert.equal(info.model, '')
