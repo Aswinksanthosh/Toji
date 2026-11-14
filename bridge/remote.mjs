@@ -170,7 +170,12 @@ export const httpInfo = (token) => async (device) => {
     const names = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string').map((x) => x.slice(0, 60)).slice(0, 60) : [])
     // eslint-disable-next-line no-control-regex -- control characters are removed on purpose
     const text = (v, n) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f]/g, '').slice(0, n) : '')
-    const steam = body.steam && typeof body.steam === 'object' ? { user: text(body.steam.user, 40), playing: text(body.steam.playing, 40), avatar: body.steam.avatar === true } : null
+    const accounts = Array.isArray(body.steam?.accounts)
+      ? body.steam.accounts.filter((a) => a && typeof a.id === 'string' && /^\d{17}$/.test(a.id)).slice(0, 10).map((a) => ({ id: a.id, name: text(a.name, 40) }))
+      : []
+    const steam = body.steam && typeof body.steam === 'object'
+      ? { user: text(body.steam.user, 40), playing: text(body.steam.playing, 40), avatar: body.steam.avatar === true, id: /^\d{17}$/.test(String(body.steam.id)) ? String(body.steam.id) : '', accounts }
+      : null
     const mode = ['saver', 'balanced', 'gaming'].includes(body.mode) ? body.mode : ''
     const cap = body.cap && typeof body.cap === 'object' ? { on: body.cap.on === true, target: Math.min(Math.max(Number(body.cap.target) || 70, 60), 85) } : null
     return { games: names(body.games), buttons: names(body.buttons), apps: names(body.apps), gameArt: names(body.gameArt), version: typeof body.version === 'string' && /^[0-9a-f]{4,12}$/.test(body.version) ? body.version : '', stale: body.stale === true, model: text(body.model, 40), steam, mode, cap, governor: body.governor === true }

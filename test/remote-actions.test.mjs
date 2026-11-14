@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
-import { APPS, REMOTE_ACTIONS, START_APPS, cleanModel, createRemoteActions, explainGit, knownButtons, knownRemoteApps, parseSteamLogin, parseSteamUser, runCommand } from '../bridge/remote-actions.mjs'
+import { APPS, REMOTE_ACTIONS, START_APPS, cleanModel, createRemoteActions, explainGit, knownButtons, knownRemoteApps, parseSteamAccounts, parseSteamLogin, parseSteamUser, runCommand } from '../bridge/remote-actions.mjs'
 
 const ROOT = 'C:\\Users\\me\\Toji'
 
@@ -41,7 +41,7 @@ const decode = (args) => Buffer.from(args.at(-1), 'base64').toString('utf16le')
 
 test('every listed action is handled, and an unknown one is refused', async () => {
   const { actions } = setup()
-  for (const action of REMOTE_ACTIONS) {
+  for (const action of REMOTE_ACTIONS.filter((a) => a !== 'steam_switch')) {
     const arg = action === 'steam_game' ? 'pubg' : action === 'app' ? 'discord' : action === 'button' ? 'my tests' : undefined
     await assert.doesNotReject(actions.run(action, arg), action)
   }
@@ -247,7 +247,7 @@ test('info lists games, button names, apps, the model and the Steam user with th
   const info = await a.info()
   assert.deepEqual(info, {
     games: ['pubg'], gameArt: [], version: '', buttons: ['my tests'], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'],
-    model: 'ROG Strix G614JV', steam: { user: 'Current Name', playing: 'pubg', avatar: false },
+    model: 'ROG Strix G614JV', steam: { user: 'Current Name', playing: 'pubg', avatar: false, id: '76561198000000002', accounts: [] },
     mode: '', cap: { on: false, target: 70 }, governor: true,
   })
   assert.ok(read[0].replace(/\\/g, '/').endsWith('steam/config/loginusers.vdf'))
@@ -559,4 +559,90 @@ test('the page version is the one that is running, and stale says newer files ar
   assert.deepEqual(pick(await make('bbbb111', OLD).info()), { version: 'aaaa111', stale: true })
   assert.deepEqual(pick(await make('bbbb111', '').info()), { version: 'bbbb111', stale: undefined })
   function pick(info) { return { version: info.version, stale: info.stale } }
+})
+
+const VDF2 = `"users"
+{
+\t"76561198000000001"
+\t{
+\t\t"AccountName"\t\t"mainacct"
+\t\t"PersonaName"\t\t"Main Player"
+\t\t"RememberPassword"\t\t"1"
+\t\t"MostRecent"\t\t"1"
+\t}
+\t"76561198000000002"
+\t{
+\t\t"AccountName"\t\t"second_acct"
+\t\t"PersonaName"\t\t"Second Player"
+\t\t"RememberPassword"\t\t"1"
+\t\t"MostRecent"\t\t"0"
+\t}
+\t"76561198000000003"
+\t{
+\t\t"AccountName"\t\t"forgotten"
+\t\t"PersonaName"\t\t"Not Remembered"
+\t\t"RememberPassword"\t\t"0"
+\t}
+\t"76561198000000004"
+\t{
+\t\t"AccountName"\t\t"bad name; calc"
+\t\t"PersonaName"\t\t"Odd"
+\t\t"RememberPassword"\t\t"1"
+\t}
+}`
+
+test('only accounts Steam stays signed in to are listed, with safe login names, and passwords are never read', () => {
+  assert.deepEqual(parseSteamAccounts(VDF2), [
+    { id: '76561198000000001', name: 'Main Player', account: 'mainacct' },
+    { id: '76561198000000002', name: 'Second Player', account: 'second_acct' },
+  ])
+  assert.deepEqual(parseSteamAccounts(''), [])
+  assert.deepEqual(parseSteamAccounts('garbage'), [])
+})
+
+function steamLab(over = {}) {
+  const spawned = []
+  const a = createRemoteActions({
+    root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32',
+    run: async (f, args) => (f === 'reg.exe' && args.join(' ').includes('SteamPath') ? '    SteamPath    REG_SZ    c:/steam\r\n' : ''),
+    readText: (f) => { if (f.endsWith('loginusers.vdf')) return VDF2; throw new Error('none') },
+    spawnFn: (cmd, args, opts) => { const c = new EventEmitter(); c.unref = () => {}; spawned.push([cmd, args, opts]); return c },
+    ...over,
+  })
+  return { a, spawned }
+}
+
+test('switching the Steam account closes Steam, sets the remembered account, and starts Steam again', async () => {
+  const { a, spawned } = steamLab()
+  assert.match(await a.run('steam_switch', '76561198000000002'), /Switching Steam to Second Player/)
+  assert.equal(spawned.length, 1)
+  assert.equal(spawned[0][0], 'powershell.exe')
+  assert.equal(spawned[0][2].detached, true)
+  const script = decode(spawned[0][1])
+  assert.match(script, /\$name = 'second_acct'/)
+  assert.ok(script.replace(/\\/g, '/').includes("$exe = 'c:/steam/steam.exe'"))
+  assert.match(script, /-shutdown/)
+  assert.match(script, /AutoLoginUser/)
+  assert.match(script, /RememberPassword -Value 1/)
+  assert.doesNotMatch(script, /password\s*=|Read-Host|SecureString/i)
+  assert.match(await a.run('steam_switch', '76561198000000001'), /already signed in/)
+  assert.equal(spawned.length, 1)
+})
+
+test('only a remembered account can be chosen, by its 17-digit number, never by text from the phone', async () => {
+  const { a, spawned } = steamLab()
+  for (const bad of ['76561198000000003', '76561198000000004', '76561198999999999', 'mainacct', 'second_acct', "x'; calc; '", '', undefined, null, 5]) {
+    await assert.rejects(a.run('steam_switch', bad), /not an account this laptop stays signed in to/, String(bad))
+  }
+  assert.equal(spawned.length, 0)
+  const none = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux' })
+  await assert.rejects(none.run('steam_switch', '76561198000000002'), /Windows only/)
+})
+
+test('info lists the remembered accounts without their login names, and the signed-in id', async () => {
+  const { a } = steamLab()
+  const info = await a.info()
+  assert.deepEqual(info.steam.accounts, [{ id: '76561198000000001', name: 'Main Player' }, { id: '76561198000000002', name: 'Second Player' }])
+  assert.equal(info.steam.id, '76561198000000001')
+  assert.doesNotMatch(JSON.stringify(info), /mainacct|second_acct|RememberPassword/)
 })

@@ -459,3 +459,30 @@ test('the page tells you when newer files are waiting to be run', async (t) => {
   const html = await (await fetch(h.url + '/')).text()
   assert.ok(html.includes('Newer files are installed but not running yet'))
 })
+
+test('the Steam accounts from an agent reach the page cleaned up: only 17-digit ids, short names, at most ten', async (t) => {
+  const { httpInfo } = await import('../bridge/remote.mjs')
+  const many = Array.from({ length: 14 }, (_, i) => ({ id: String(76561198000000000 + i), name: `P${i}` }))
+  const body = { ok: true, games: [], steam: { user: 'A', playing: '', avatar: false, id: '76561198000000001', accounts: [...many, { id: 'abc', name: 'bad' }, { id: '76561198000000099', name: 'x'.repeat(90) }, null, 5] } }
+  const s = await startAgent({ token: TOKEN, port: 0, host: '127.0.0.1', run: async () => 'ok', info: () => body })
+  t.after(() => s.close())
+  const get = () => httpInfo(TOKEN)({ agent: `http://127.0.0.1:${s.port}` })
+  const got = await get()
+  assert.equal(got.steam.accounts.length, 10)
+  assert.ok(got.steam.accounts.every((a) => /^\d{17}$/.test(a.id)))
+  assert.equal(got.steam.id, '76561198000000001')
+  body.steam.accounts = [{ id: '76561198000000099', name: 'x'.repeat(90) }]
+  body.steam.id = 'not-an-id'
+  const long = await get()
+  assert.equal(long.steam.accounts[0].name.length, 40)
+  assert.equal(long.steam.id, '')
+  body.steam.accounts = 'nope'
+  assert.deepEqual((await get()).steam.accounts, [])
+})
+
+test('the page has the Steam account switcher with a confirmation', async (t) => {
+  const h = await hub()
+  t.after(() => h.close())
+  const html = await (await fetch(h.url + '/')).text()
+  for (const part of ['Switch Steam account', "'steam_switch'", 'Steam closes and starts again']) assert.ok(html.includes(part), part)
+})

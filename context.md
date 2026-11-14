@@ -61,6 +61,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - Removed at the owner's request: the MODE block (power saving, balanced, gaming) from the remote page. The `mode_*`/`cap_*` agent actions and `Setup-Governor.cmd` are still in the code but unused (candidates for deletion if the owner wants).
 - Changed: the game drop-down now lives inside the game banner (owner's wish); the picture is changed with a small "Change picture" button in the banner corner.
 - Added: game pictures chosen on the phone: press Change picture on the banner, pick a picture; the page shrinks it and the hub stores it in `~/.jarvis/art/games/` (`POST /api/gameart/upload`, password session, magic-byte check, 1.5 MB, known game names only). Served before a laptop's own file. Not checked in a real browser yet.
+- Added: "Switch Steam account" in the Steam panel (remembered accounts only, with a confirmation).
 - Fixed: Update & restart said "Already up to date" when files had been pulled by hand but the running remote was older (page kept the old layout). The agent now remembers the commit it started with (`runningHead`, read in `scripts/remote.mjs`), update compares against that and restarts when it differs, and the page shows the running version plus a hint when newer files are waiting (`stale`).
 - Fixed: Git pull / Update & restart failed when `npm install` had rewritten `package-lock.json` on a laptop (git refuses to pull over it) and the error shown was only the command line. Now the lock file is put back (`git checkout -- package-lock.json`, only that file) before the fast-forward-only pull, and failures show git's real reason in plain words (`explainGit`).
 - Added: "Update this app" in the remote: `git_pull` (fast-forward only) and `update_remote` (pull, `npm install` only when package files changed, then a detached PowerShell stops only `remote.mjs` node processes and starts the `Jarvis Remote Buttons` task, or `node scripts\\remote.mjs` if no task). Each laptop's short commit is shown on the page (`version` in `/agent/info`).
@@ -75,7 +76,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 
 ## Backlog (ideas, not built yet)
 - Turn the laptop on from the phone: the wake sender and the no-AI remote page are built (`README-wake.md`, `README-remote.md`) but untested on real hardware. Open: finding out whether the laptops stay reachable in Modern Standby (then no wake is needed), and what always-on device can host the hub. Fallbacks: smart plug plus a BIOS "power on when AC attached" option, or leaving the laptop on.
-- Steam: a gaming power or graphics profile switch. Decided: no timer, the owner sends the command; two laptops each keep their own Steam login (Jarvis never handles Steam passwords or switches accounts).
+- Steam: a gaming power or graphics profile switch. Decided: no timer, the owner sends the command; two laptops each keep their own Steam login (Jarvis never handles Steam passwords). Update: the remote can switch between the accounts Steam already remembers on a laptop (`steam_switch`: closes Steam, sets `AutoLoginUser`, restarts it; only by a 17-digit id found in that laptop's `loginusers.vdf` with RememberPassword=1; still no passwords).
 - Offline voice (Whisper for hearing, Piper for speaking) so no audio goes to Google.
 - Route by difficulty: easy questions to the local model, hard ones to Claude or Gemini. Owner's plan: local model for daily use, Claude only when necessary (for now: `Jarvis-Local.cmd` daily, `Jarvis-Claude.cmd` for hard ones; auto-switch is this item).
 - Show the small local model fewer tools at a time.
@@ -89,7 +90,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - `npm audit --omit=dev`: after `npm audit fix` only 3 high issues remain, all in the unused Kokoro voice library (`kokoro-js`, `sharp`); no fix exists upstream. Re-run the audit now and then.
 
 ## Verify after editing
-`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (202 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
+`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (208 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
 
 ## Git
 Work on `main` of the owner's fork. One commit per change, with the attribution lines the session gives. Do not force-push without approval, and do not open a pull request unless asked.

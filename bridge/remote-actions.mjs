@@ -76,6 +76,7 @@ export const REMOTE_ACTIONS = [
   'jarvis_start',
   'git_pull',
   'update_remote',
+  'steam_switch',
   'status',
   'app',
   'button',
@@ -204,6 +205,20 @@ if (Get-ScheduledTask -TaskName ${psQuote(task)} -ErrorAction SilentlyContinue) 
 else { Start-Process node -ArgumentList 'scripts\remote.mjs' -WorkingDirectory $root -WindowStyle Hidden }`
 export const REMOTE_TASK = 'Jarvis Remote Buttons'
 
+// Closes Steam politely (then firmly after 40 s), tells it which remembered account to use, and starts it again.
+const switchSteamScript = (exe, account) => String.raw`$exe = ${psQuote(exe)}
+$name = ${psQuote(account)}
+if (Get-Process steam -ErrorAction SilentlyContinue) {
+  Start-Process $exe -ArgumentList '-shutdown'
+  for ($i = 0; $i -lt 40 -and (Get-Process steam -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Seconds 1 }
+  Get-Process steam -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+$key = 'HKCU:\Software\Valve\Steam'
+Set-ItemProperty -Path $key -Name AutoLoginUser -Value $name
+Set-ItemProperty -Path $key -Name RememberPassword -Value 1 -Type DWord
+Start-Sleep -Seconds 2
+Start-Process $exe`
+
 const MODEL = String.raw`Get-CimInstance Win32_ComputerSystem | ForEach-Object { "$($_.Manufacturer)|$($_.Model)" }`
 
 /** "ROG Strix G614JV_G614JV" -> "ROG Strix G614JV". Only a name to show, never used for anything else. */
@@ -223,6 +238,21 @@ export function parseSteamLogin(vdf) {
   return pick ? { id: pick.id, name: pick.name.slice(0, 40) } : { id: '', name: '' }
 }
 export const parseSteamUser = (vdf) => parseSteamLogin(vdf).name
+
+/**
+ * The accounts Steam stays signed in to on this laptop (RememberPassword), from config/loginusers.vdf.
+ * `account` is the login name Steam needs to pick the account; it never leaves this laptop. No passwords are read.
+ */
+export function parseSteamAccounts(vdf) {
+  const out = []
+  for (const m of String(vdf ?? '').matchAll(/"(\d{17})"\s*\{([^}]*)\}/g)) {
+    const field = (k) => new RegExp(`"${k}"\\s+"([^"]*)"`, 'i').exec(m[2])?.[1]
+    const account = field('AccountName') ?? ''
+    const name = (field('PersonaName') || account).slice(0, 40)
+    if (field('RememberPassword') === '1' && name && /^[A-Za-z0-9_.-]{2,64}$/.test(account)) out.push({ id: m[1], name, account })
+  }
+  return out.slice(0, 10)
+}
 
 const regValue = (out, name) => new RegExp(`${name}\\s+REG_\\w+\\s+(.+)`, 'i').exec(String(out))?.[1]?.trim() ?? ''
 
@@ -352,6 +382,8 @@ export function createRemoteActions({
       }
       case 'update_remote':
         return updateRemote()
+      case 'steam_switch':
+        return switchSteam(arg)
       case 'status':
         return statusText()
       case 'app': {
@@ -466,6 +498,19 @@ export function createRemoteActions({
     }
   }
 
+  async function switchSteam(id) {
+    winOnly()
+    const steam = await steamInfo()
+    const wanted = String(id ?? '').trim()
+    const target = /^\d{17}$/.test(wanted) ? steam?.accounts?.find((a) => a.id === wanted) : null
+    if (!target) throw new Error('That is not an account this laptop stays signed in to.')
+    if (target.id === steam.id) return `${target.name} is already signed in.`
+    const child = spawnFn('powershell.exe', psArgs(switchSteamScript(join(steam.path, 'steam.exe'), target.account)), { detached: true, stdio: 'ignore', windowsHide: true })
+    child.once('error', () => {})
+    child.unref?.()
+    return `Switching Steam to ${target.name}. Steam closes and starts again: about 30 seconds.`
+  }
+
   async function updateRemote() {
     const head = async () => (await run('git', ['-C', root, 'rev-parse', 'HEAD'])).trim()
     const before = await head()
@@ -538,7 +583,8 @@ export function createRemoteActions({
     try {
       const key = 'HKCU\\Software\\Valve\\Steam'
       const path = regValue(await run('reg.exe', ['query', key, '/v', 'SteamPath']), 'SteamPath') || 'C:\\Program Files (x86)\\Steam'
-      const login = parseSteamLogin(readText(join(path, 'config', 'loginusers.vdf')))
+      const vdf = readText(join(path, 'config', 'loginusers.vdf'))
+      const login = parseSteamLogin(vdf)
       const user = login.name
       let playing = ''
       try {
@@ -547,7 +593,7 @@ export function createRemoteActions({
       } catch {
         // Not running a game, or the value is missing.
       }
-      return { user, playing, id: login.id, path }
+      return { user, playing, id: login.id, path, accounts: parseSteamAccounts(vdf) }
     } catch {
       return null
     }
@@ -608,7 +654,7 @@ export function createRemoteActions({
         gameArt: games().filter((g) => gameArtFile(g)),
         apps: [...Object.keys(APPS), ...Object.keys(START_APPS), ...Object.keys(knownRemoteApps(appsFile))],
         model,
-        steam: steam ? { user: steam.user, playing: steam.playing, avatar: Boolean(avatarFile(steam)) } : null,
+        steam: steam ? { user: steam.user, playing: steam.playing, avatar: Boolean(avatarFile(steam)), id: steam.id, accounts: steam.accounts.map(({ id, name }) => ({ id, name })) } : null,
         mode: state.mode,
         cap: capEnabled ? { on: state.enabled, target: clampTarget(targetC) } : null,
         governor: capEnabled ? await governorInstalled() : false,

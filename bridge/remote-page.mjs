@@ -188,6 +188,7 @@ body[data-theme=tuf] .dd-btn,body[data-theme=tuf] .steam .b{border-radius:3px}
 .thumb{flex:0 0 38px;width:38px;height:38px;border-radius:6px;background:#101822 center/cover no-repeat}
 .hint{font-size:.8rem;color:#ffcf8a}
 .gchip{position:absolute;top:8px;right:8px;z-index:3;font:inherit;font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;padding:5px 10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.3);border-radius:999px;color:#fff;cursor:pointer}
+.steam>.dd{z-index:8}
 .gbanner{position:relative;z-index:6;height:132px;border-radius:var(--r);animation:up .35s ease both}
 .gimg{position:absolute;inset:0;border-radius:var(--r);border:1px solid #2a475e;background:linear-gradient(135deg,#1b2838,#2a475e) center/cover no-repeat;overflow:hidden}
 .gimg::after{content:'';position:absolute;inset:0;background:linear-gradient(transparent 25%,rgba(0,0,0,.78))}
@@ -273,7 +274,7 @@ function acc(key,title,kids){
   h.addEventListener('click',()=>{const o=d.classList.toggle('open');h.setAttribute('aria-expanded',o?'true':'false');if(o)opened.add(key);else opened.delete(key)})
   d.append(h,b);return d
 }
-function dropdown(options,value,onPick,disabled,thumb){
+function dropdown(options,value,onPick,disabled,thumb,keepLabel){
   const dd=el('div','dd'),b=el('button','dd-btn');b.disabled=!!disabled
   const label=el('span','',value||'No games yet');b.append(label,el('span','chev'))
   const ul=el('ul','dd-list');ul.setAttribute('role','listbox')
@@ -281,7 +282,7 @@ function dropdown(options,value,onPick,disabled,thumb){
     const li=el('li',o===value?'sel':'');li.setAttribute('role','option')
     if(thumb){const t=el('span','thumb');t.dataset.key=thumb(o);li.append(t)}
     li.append(el('span','',o))
-    li.addEventListener('click',e=>{e.stopPropagation();label.textContent=o;for(const x of ul.children)x.classList.remove('sel');li.classList.add('sel');dd.classList.remove('open');onPick(o)})
+    li.addEventListener('click',e=>{e.stopPropagation();if(!keepLabel){label.textContent=o;for(const x of ul.children)x.classList.remove('sel');li.classList.add('sel')};dd.classList.remove('open');onPick(o)})
     ul.append(li)
   }
   b.addEventListener('click',e=>{e.stopPropagation();const o=!dd.classList.contains('open');for(const x of document.querySelectorAll('.dd.open'))x.classList.remove('open');if(o)dd.classList.add('open')})
@@ -368,6 +369,15 @@ function drawPanel(d,anim){
   }else txt.append(el('div','unk',d.awake?'No Steam user found':'Laptop not answering'))
   if(d.steam&&d.steam.playing)txt.append(el('div','now','Now playing: '+d.steam.playing))
   head.append(txt);steam.append(head)
+  const accs=(d.steam&&d.steam.accounts)||[]
+  if(accs.length>1){
+    const labels=accs.map(a=>a.name+(a.id===d.steam.id?' (signed in)':''))
+    const uniq=labels.map((l,i)=>labels.indexOf(l)===i?l:l+' · '+accs[i].id.slice(-4))
+    steam.append(dropdown(uniq,'Switch Steam account',v=>{
+      const a=accs[uniq.indexOf(v)];if(!a||a.id===d.steam.id)return
+      if(confirm('Switch '+n+' to the Steam account '+a.name+'? Steam closes and starts again, and any running game closes.'))act(n,'steam_switch',a.id)
+    },c,null,true))
+  }
   const games=d.games||data.games||[]
   if(!games.includes(picked[n]))picked[n]=games[0]||''
   const s1=el('div','row');s1.append(go('Steam','steam_open'),go('Big Picture','steam_bigpicture'),go('Show game','game_focus'))
