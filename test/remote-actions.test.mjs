@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
-import { APPS, REMOTE_ACTIONS, START_APPS, cleanModel, createRemoteActions, explainGit, knownButtons, knownRemoteApps, parseSteamAccounts, parseSteamLogin, parseSteamUser, runCommand } from '../bridge/remote-actions.mjs'
+import { APPS, REMOTE_ACTIONS, START_APPS, cleanModel, createRemoteActions, explainGit, knownButtons, knownRemoteApps, parseSteamAccounts, parseSteamLogin, parseSteamUser, runCommand, setMostRecent } from '../bridge/remote-actions.mjs'
 
 const ROOT = 'C:\\Users\\me\\Toji'
 
@@ -614,23 +614,6 @@ function steamLab(over = {}) {
   return { a, spawned }
 }
 
-test('switching the Steam account closes Steam, sets the remembered account, and starts Steam again', async () => {
-  const { a, spawned } = steamLab()
-  assert.match(await a.run('steam_switch', '76561198000000002'), /Switching Steam to Second Player/)
-  assert.equal(spawned.length, 1)
-  assert.equal(spawned[0][0], 'powershell.exe')
-  assert.equal(spawned[0][2].detached, true)
-  const script = decode(spawned[0][1])
-  assert.match(script, /\$name = 'second_acct'/)
-  assert.ok(script.replace(/\\/g, '/').includes("$exe = 'c:/steam/steam.exe'"))
-  assert.match(script, /-shutdown/)
-  assert.match(script, /AutoLoginUser/)
-  assert.match(script, /RememberPassword -Value 1/)
-  assert.doesNotMatch(script, /password\s*=|Read-Host|SecureString/i)
-  assert.match(await a.run('steam_switch', '76561198000000001'), /already signed in/)
-  assert.equal(spawned.length, 1)
-})
-
 test('only a remembered account can be chosen, by its 17-digit number, never by text from the phone', async () => {
   const { a, spawned } = steamLab()
   for (const bad of ['76561198000000003', '76561198000000004', '76561198999999999', 'mainacct', 'second_acct', "x'; calc; '", '', undefined, null, 5]) {
@@ -687,19 +670,105 @@ test('turn off waits 15 seconds and can be cancelled; cancelling with nothing wa
   await assert.rejects(linux.run('shutdown'), /Windows only/)
 })
 
-test('switching accounts also moves the MostRecent flag after a backup, touches nothing else, and carries no template placeholders', async () => {
-  const { a, spawned } = steamLab()
-  await a.run('steam_switch', '76561198000000002')
-  const script = decode(spawned[0][1])
-  assert.match(script, /\$id = '76561198000000002'/)
-  assert.match(script, /Copy-Item \$vdf \(\$vdf \+ '\.jarvis-backup'\) -Force/)
-  assert.match(script, /"MostRecent"/)
-  assert.match(script, /UTF8Encoding \$false/)
-  // the backup is made before the file is rewritten, and Steam is closed before either
-  assert.ok(script.indexOf('-shutdown') < script.indexOf('Copy-Item'))
-  assert.ok(script.indexOf('Copy-Item') < script.indexOf('WriteAllText'))
-  assert.ok(script.indexOf('WriteAllText') < script.indexOf('AutoLoginUser'))
-  assert.ok(script.indexOf('AutoLoginUser') < script.lastIndexOf('Start-Process $exe'))
-  assert.doesNotMatch(script, /\$\{|undefined|\[object/)
-  assert.doesNotMatch(script, /AccountName|Password\s*=|SecureString/)
+
+test('the MostRecent flag moves to one account and nothing else in the file changes', () => {
+  const moved = setMostRecent(VDF2, '76561198000000002')
+  const flags = [...moved.matchAll(/"(\d{17})"\s*\{[^}]*?"MostRecent"\s+"(\d)"/g)].map((m) => [m[1], m[2]])
+  assert.deepEqual(flags, [['76561198000000001', '0'], ['76561198000000002', '1']])
+  // everything else is byte for byte the same
+  assert.equal(moved.replace(/"MostRecent"(\s+)"\d"/g, '"MostRecent"$1"x"'), VDF2.replace(/"MostRecent"(\s+)"\d"/g, '"MostRecent"$1"x"'))
+  assert.equal(setMostRecent(moved, '76561198000000002'), moved)
+  assert.equal(setMostRecent(setMostRecent(VDF2, '76561198000000002'), '76561198000000001'), VDF2)
+  // an account without the line gets one; the others without it are left alone
+  const bare = '"users"\n{\n\t"76561198000000001"\n\t{\n\t\t"AccountName"\t\t"a"\n\t}\n\t"76561198000000002"\n\t{\n\t\t"AccountName"\t\t"b"\n\t}\n}'
+  const added = setMostRecent(bare, '76561198000000002')
+  assert.match(added, /"76561198000000002"\s*\{[^}]*"MostRecent"\s+"1"/)
+  assert.doesNotMatch(added.slice(0, added.indexOf('76561198000000002')), /MostRecent/)
+  assert.equal(setMostRecent('', 'x'), '')
+  assert.equal(setMostRecent('garbage', '76561198000000002'), 'garbage')
+})
+
+function switchLab({ running = [true, false], failReg = false, always = false } = {}) {
+  const calls = []
+  const files = new Map()
+  const started = []
+  const logs = []
+  let n = 0
+  const a = createRemoteActions({
+    root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32',
+    run: async (f, args) => {
+      calls.push([f, ...args])
+      if (f === 'reg.exe' && args.join(' ').includes('SteamPath')) return '    SteamPath    REG_SZ    c:/steam\r\n'
+      if (f === 'tasklist.exe') return always || running[Math.min(n++, running.length - 1)] ? 'steam.exe   1234 Console  1  200,000 K' : 'INFO: No tasks are running which match the specified criteria.'
+      if (f === 'reg.exe' && args[0] === 'add' && failReg) throw new Error('Access is denied')
+      return ''
+    },
+    readText: (f) => (f.endsWith('loginusers.vdf') ? VDF2 : (() => { throw new Error('none') })()),
+    writeAtomic: (f, text) => files.set(f.replace(/\\/g, '/'), text),
+    spawnFn: (cmd, args, opts) => { const c = new EventEmitter(); c.unref = () => {}; started.push([cmd.replace(/\\/g, '/'), args, opts]); return c },
+    sleep: async () => {}, logFile: 'steam-switch.log', appendLog: (f, text) => logs.push(text),
+  })
+  return { a, calls, files, started, logs }
+}
+
+test('switching the Steam account: closes Steam, waits, backs up and updates the file, sets the account, starts Steam, and writes each step to a log', async () => {
+  const { a, calls, files, started, logs } = switchLab()
+  const answer = await a.run('steam_switch', '76561198000000002')
+  assert.match(answer, /Switching Steam to Second Player\. Steam closes and starts again/)
+  assert.match(answer, /steam-switch\.log/)
+  await a.settled()
+  const order = calls.map((c) => c.join(' '))
+  const at = (re) => order.findIndex((l) => re.test(l))
+  assert.ok(at(/tasklist\.exe/) >= 0)
+  assert.ok(at(/steam\.exe -shutdown/) > at(/tasklist\.exe/))
+  assert.ok(at(/AutoLoginUser \/t REG_SZ \/d second_acct \/f/) > at(/-shutdown/))
+  assert.ok(at(/RememberPassword \/t REG_DWORD \/d 1 \/f/) > at(/AutoLoginUser/))
+  assert.ok(!order.some((l) => /taskkill/.test(l)), 'closed politely, no force needed')
+  // the file: backup first (the original), then the update (flag moved)
+  assert.equal(files.get('c:/steam/config/loginusers.vdf.jarvis-backup'), VDF2)
+  assert.equal(files.get('c:/steam/config/loginusers.vdf'), setMostRecent(VDF2, '76561198000000002'))
+  assert.deepEqual(started.length, 1)
+  assert.ok(started[0][0].endsWith('c:/steam/steam.exe'))
+  assert.equal(started[0][2].detached, true)
+  const log = logs.join('')
+  for (const step of ['switching to Second Player', 'steam is running', 'steam closed', 'loginusers.vdf updated', 'registry set', 'steam started: done']) assert.ok(log.includes(step), step)
+  // the log names the display name only: never the login name, and no password is ever involved
+  assert.doesNotMatch(log, /second_acct|mainacct/)
+  assert.doesNotMatch(log, /password\s*[:=]/i)
+  assert.match(await a.run('steam_switch', '76561198000000001'), /already signed in/)
+})
+
+test('if Steam is not running, nothing is closed; if it will not close, it is forced after 40 seconds', async () => {
+  const idle = switchLab({ running: [false] })
+  await idle.a.run('steam_switch', '76561198000000002'); await idle.a.settled()
+  assert.ok(!idle.calls.some((c) => c.join(' ').includes('-shutdown')))
+  assert.ok(idle.logs.join('').includes('steam was not running'))
+  assert.equal(idle.started.length, 1)
+
+  const stuck = switchLab({ always: true })
+  await stuck.a.run('steam_switch', '76561198000000002'); await stuck.a.settled()
+  const order = stuck.calls.map((c) => c.join(' '))
+  assert.ok(order.some((l) => /taskkill\.exe \/IM steam\.exe \/F/.test(l)))
+  assert.ok(stuck.logs.join('').includes('steam did not close in 40 s: forcing it'))
+  assert.ok(order.filter((l) => /tasklist/.test(l)).length <= 45, 'the waiting loop is bounded')
+})
+
+test('a step that fails is logged, stops the switch, and never crashes the agent', async () => {
+  const { a, started, logs, files } = switchLab({ failReg: true })
+  assert.match(await a.run('steam_switch', '76561198000000002'), /Switching Steam/)
+  await assert.doesNotReject(a.settled())
+  assert.ok(logs.join('').includes('STOPPED: Access is denied'))
+  assert.equal(started.length, 0)
+  // the backup was already saved before the failure
+  assert.equal(files.get('c:/steam/config/loginusers.vdf.jarvis-backup'), VDF2)
+  // a log that cannot be written must not stop anything either
+  const noLog = createRemoteActions({
+    root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32',
+    run: async (f, args) => (f === 'reg.exe' && args.join(' ').includes('SteamPath') ? '    SteamPath    REG_SZ    c:/steam\r\n' : ''),
+    readText: (f) => (f.endsWith('loginusers.vdf') ? VDF2 : (() => { throw new Error('none') })()),
+    writeAtomic: () => {}, spawnFn: () => { const c = new EventEmitter(); c.unref = () => {}; return c }, sleep: async () => {},
+    appendLog: () => { throw new Error('disk full') },
+  })
+  await noLog.run('steam_switch', '76561198000000002')
+  await assert.doesNotReject(noLog.settled())
 })

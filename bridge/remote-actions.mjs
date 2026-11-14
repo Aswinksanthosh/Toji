@@ -14,7 +14,7 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, uptime } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -247,34 +247,6 @@ if (Get-ScheduledTask -TaskName ${psQuote(task)} -ErrorAction SilentlyContinue) 
 else { Start-Process node -ArgumentList 'scripts\remote.mjs' -WorkingDirectory $root -WindowStyle Hidden }`
 export const REMOTE_TASK = 'Jarvis Remote Buttons'
 
-// Closes Steam politely (then firmly after 40 s), tells it which remembered account to use, and starts it again.
-const switchSteamScript = (exe, account, id) => String.raw`$exe = ${psQuote(exe)}
-$name = ${psQuote(account)}
-$id = ${psQuote(id)}
-if (Get-Process steam -ErrorAction SilentlyContinue) {
-  Start-Process $exe -ArgumentList '-shutdown'
-  for ($i = 0; $i -lt 40 -and (Get-Process steam -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Seconds 1 }
-  Get-Process steam -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-}
-# Newer Steam also looks at which account is flagged MostRecent. Only those flags change, after a backup.
-$vdf = Join-Path (Split-Path $exe -Parent) 'config\loginusers.vdf'
-if (Test-Path $vdf) {
-  Copy-Item $vdf ($vdf + '.jarvis-backup') -Force
-  $text = [IO.File]::ReadAllText($vdf)
-  $text = [regex]::Replace($text, '"(\d{17})"\s*\{[^}]*\}', {
-    param($block)
-    $flag = '0'
-    if ($block.Groups[1].Value -eq $id) { $flag = '1' }
-    [regex]::Replace($block.Value, '("MostRecent"\s+")\d(")', { param($part) $part.Groups[1].Value + $flag + $part.Groups[2].Value })
-  })
-  [IO.File]::WriteAllText($vdf, $text, (New-Object Text.UTF8Encoding $false))
-}
-$key = 'HKCU:\Software\Valve\Steam'
-Set-ItemProperty -Path $key -Name AutoLoginUser -Value $name
-Set-ItemProperty -Path $key -Name RememberPassword -Value 1 -Type DWord
-Start-Sleep -Seconds 2
-Start-Process $exe`
-
 const MODEL = String.raw`Get-CimInstance Win32_ComputerSystem | ForEach-Object { "$($_.Manufacturer)|$($_.Model)" }`
 
 /** "ROG Strix G614JV_G614JV" -> "ROG Strix G614JV". Only a name to show, never used for anything else. */
@@ -294,6 +266,18 @@ export function parseSteamLogin(vdf) {
   return pick ? { id: pick.id, name: pick.name.slice(0, 40) } : { id: '', name: '' }
 }
 export const parseSteamUser = (vdf) => parseSteamLogin(vdf).name
+
+/**
+ * Moves the "MostRecent" flag in loginusers.vdf to one account (1 for it, 0 for the others).
+ * Only those flags change; if the chosen account has no such line, one is added. Everything else is kept as it is.
+ */
+export function setMostRecent(vdf, id) {
+  return String(vdf ?? '').replace(/("(\d{17})"\s*\{)([^}]*)(\})/g, (whole, open, userId, body, close) => {
+    const flag = userId === id ? '1' : '0'
+    if (/"MostRecent"\s+"\d"/i.test(body)) return open + body.replace(/("MostRecent"\s+")\d(")/i, `$1${flag}$2`) + close
+    return userId === id ? `${open}${body.replace(/\s*$/, '')}\n\t\t"MostRecent"\t\t"1"\n\t${close}` : whole
+  })
+}
 
 /**
  * The accounts Steam stays signed in to on this laptop (RememberPassword), from config/loginusers.vdf.
@@ -352,6 +336,12 @@ export function createRemoteActions({
   },
   run = defaultRun,
   spawnFn = spawn,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  logFile = join(homedir(), '.jarvis', 'steam-switch.log'),
+  appendLog = (file, text) => {
+    mkdirSync(dirname(file), { recursive: true })
+    appendFileSync(file, text)
+  },
   exists = existsSync,
   platform = process.platform,
   uptimeFn = uptime,
@@ -572,6 +562,53 @@ export function createRemoteActions({
     }
   }
 
+  let switching = Promise.resolve()
+  const note = (text) => {
+    try {
+      appendLog(logFile, `${new Date().toISOString()}  ${text}\n`)
+    } catch {
+      // The log is only a help; never let it stop the switch.
+    }
+  }
+  const steamRunning = async () => /steam\.exe/i.test(await run('tasklist.exe', ['/FI', 'IMAGENAME eq steam.exe', '/NH']).catch(() => ''))
+
+  // The steps, one by one, in the background. Each one is written to the log so a stop can be found.
+  async function runSwitch(steam, target) {
+    const exe = join(steam.path, 'steam.exe')
+    const vdfFile = join(steam.path, 'config', 'loginusers.vdf')
+    note(`switching to ${target.name}; steam folder ${steam.path}`)
+    if (await steamRunning()) {
+      note('steam is running: asking it to close')
+      await run(exe, ['-shutdown'], { timeout: 10_000 }).catch((err) => note(`-shutdown said: ${err.message}`))
+      let waited = 0
+      while (waited < 40 && (await steamRunning())) {
+        await sleep(1000)
+        waited++
+      }
+      if (await steamRunning()) {
+        note('steam did not close in 40 s: forcing it')
+        await run('taskkill.exe', ['/IM', 'steam.exe', '/F']).catch((err) => note(`taskkill said: ${err.message}`))
+        await sleep(1500)
+      }
+      note(`steam closed after about ${waited} s`)
+    } else {
+      note('steam was not running')
+    }
+    const before = readText(vdfFile)
+    writeAtomic(`${vdfFile}.jarvis-backup`, before)
+    writeAtomic(vdfFile, setMostRecent(before, target.id))
+    note('loginusers.vdf updated (backup saved next to it)')
+    const key = 'HKCU\\Software\\Valve\\Steam'
+    await run('reg.exe', ['add', key, '/v', 'AutoLoginUser', '/t', 'REG_SZ', '/d', target.account, '/f'])
+    await run('reg.exe', ['add', key, '/v', 'RememberPassword', '/t', 'REG_DWORD', '/d', '1', '/f'])
+    note('registry set: AutoLoginUser and RememberPassword')
+    await sleep(2000)
+    const child = spawnFn(exe, [], { detached: true, stdio: 'ignore' })
+    child.once('error', (err) => note(`could not start steam: ${err.message}`))
+    child.unref?.()
+    note('steam started: done')
+  }
+
   async function switchSteam(id) {
     winOnly()
     const steam = await steamInfo()
@@ -579,10 +616,9 @@ export function createRemoteActions({
     const target = /^\d{17}$/.test(wanted) ? steam?.accounts?.find((a) => a.id === wanted) : null
     if (!target) throw new Error('That is not an account this laptop stays signed in to.')
     if (target.id === steam.id) return `${target.name} is already signed in.`
-    const child = spawnFn('powershell.exe', psArgs(switchSteamScript(join(steam.path, 'steam.exe'), target.account, target.id)), { detached: true, stdio: 'ignore', windowsHide: true })
-    child.once('error', () => {})
-    child.unref?.()
-    return `Switching Steam to ${target.name}. Steam closes and starts again: about 30 seconds.`
+    // Answer at once; the steps run in the background and write their progress to the log.
+    switching = runSwitch(steam, target).catch((err) => note(`STOPPED: ${err.message}`))
+    return `Switching Steam to ${target.name}. Steam closes and starts again: about 30 seconds. If nothing changes, the steps are written to .jarvis\\steam-switch.log on that laptop.`
   }
 
   async function updateRemote() {
@@ -715,6 +751,8 @@ export function createRemoteActions({
 
   return {
     run: perform,
+    /** Resolves when the background Steam switch has finished (used by tests). */
+    settled: () => switching,
     async info() {
       let timer
       const model = await Promise.race([loadModel(), new Promise((r) => (timer = setTimeout(() => r(''), 1200)))])
