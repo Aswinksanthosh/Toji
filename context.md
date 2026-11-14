@@ -55,7 +55,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - Turn the laptop on from the phone: the wake sender and the no-AI remote page are built (`README-wake.md`, `README-remote.md`) but untested on real hardware. Open: finding out whether the laptops stay reachable in Modern Standby (then no wake is needed), and what always-on device can host the hub. Fallbacks: smart plug plus a BIOS "power on when AC attached" option, or leaving the laptop on.
 - Steam: a gaming power or graphics profile switch. Decided: no timer, the owner sends the command; two laptops each keep their own Steam login (Jarvis never handles Steam passwords or switches accounts).
 - Offline voice (Whisper for hearing, Piper for speaking) so no audio goes to Google.
-- Route by difficulty: easy questions to the local model, hard ones to Claude or Gemini.
+- Route by difficulty: easy questions to the local model, hard ones to Claude or Gemini. Owner's plan: local model for daily use, Claude only when necessary (for now: `Jarvis-Local.cmd` daily, `Jarvis-Claude.cmd` for hard ones; auto-switch is this item).
 - Show the small local model fewer tools at a time.
 - A web research tool for the local model.
 - Automatic fallback to the local model on the main page when Gemini is out of free requests (the phone page already does this).
