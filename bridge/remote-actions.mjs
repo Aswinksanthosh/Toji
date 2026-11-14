@@ -69,6 +69,7 @@ export function knownButtons(file = join(homedir(), '.jarvis', 'buttons.json')) 
       const command = typeof v?.command === 'string' ? v.command.trim() : ''
       const cwd = typeof v?.cwd === 'string' && v.cwd.trim() ? v.cwd.trim() : ''
       if (!key || key.length > 40 || !command || command.length > 300) continue
+      // eslint-disable-next-line no-control-regex -- control characters are rejected on purpose
       if (/[\r\n\u0000]/.test(command) || /[\r\n\u0000]/.test(cwd)) continue
       out[key] = { command, cwd }
     }
