@@ -161,6 +161,21 @@ body[data-theme=rog] .b{background:linear-gradient(135deg,rgba(255,79,163,.45),r
 body[data-theme=tuf] .b{text-transform:uppercase;letter-spacing:.08em;font-weight:700;font-size:.86rem;border-left:3px solid var(--a);clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px)}
 .b:active{transform:scale(.95)}
 .b.ping{animation:ping .5s ease-out}
+.pwr{width:52px;height:52px;padding:0;margin-left:auto;border-radius:50%;display:inline-flex;align-items:center;justify-content:center}
+body[data-theme=tuf] .pwr{border-radius:3px}
+.pwr svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round}
+.sm-trig{position:relative;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.sm-trig::after{content:'';position:absolute;right:7px;bottom:7px;border:3.5px solid transparent;border-right-color:currentColor;border-bottom-color:currentColor;opacity:.55}
+.pwr.sm-trig::after{right:9px;bottom:9px}
+.sm-dim{position:fixed;inset:0;z-index:55;background:rgba(0,0,0,.5);animation:up .15s ease both}
+.smenu{position:fixed;z-index:60;width:min(250px,calc(100vw - 24px));background:rgba(10,16,22,.97);border:1px solid var(--line);border-radius:var(--r);padding:6px;display:flex;flex-direction:column;gap:3px;box-shadow:0 12px 40px rgba(0,0,0,.6);transform-origin:top right;animation:smIn .16s ease both;-webkit-user-select:none;user-select:none}
+@keyframes smIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}
+.sm-item{display:flex;flex-direction:column;justify-content:center;min-height:50px;padding:8px 14px;border-radius:10px;color:#e8f4f8;font-weight:600;cursor:pointer;transition:background .08s}
+body[data-theme=tuf] .sm-item{border-radius:3px;text-transform:uppercase;letter-spacing:.06em;font-size:.88rem}
+.sm-item small{font-weight:400;font-size:.72rem;opacity:.75;text-transform:none;letter-spacing:0}
+.sm-item.on,.sm-item:focus-visible{background:var(--a);color:#000;outline:none}
+.sm-item.danger{color:#ff9d8f}
+.sm-item.danger.on,.sm-item.danger:focus-visible{background:#c0392b;color:#fff}
 .b.hold{position:relative;overflow:hidden;isolation:isolate;touch-action:manipulation;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .b.hold::before{content:'';position:absolute;inset:0;z-index:-1;background:var(--a);opacity:.6;transform:scaleX(0);transform-origin:left}
 .b.hold.holding::before{transform:scaleX(1);transition:transform .8s linear}
@@ -300,6 +315,81 @@ function btn(label,fn,disabled,sure,cls){
   b.addEventListener('click',e=>e.preventDefault())
   return b
 }
+// Press and hold, then slide to an option and let go to pick it. A quick tap either runs opts.tap, or opens the menu so you can tap an option.
+function slideMenu(trigger,getItems,opts){
+  opts=opts||{}
+  const HOLD=260
+  let timer=0,mode='',menu=null,dim=null,els=[],items=[],hi=-1,pid=-1
+  function mark(i){
+    if(i===hi)return;hi=i
+    els.forEach((x,j)=>x.classList.toggle('on',j===i))
+    if(i>=0&&navigator.vibrate)navigator.vibrate(8)
+  }
+  function hit(x,y){
+    const t=document.elementFromPoint(x,y),it=t&&t.closest?t.closest('.sm-item'):null
+    return it&&menu&&menu.contains(it)?els.indexOf(it):-1
+  }
+  function close(){
+    clearTimeout(timer);timer=0
+    if(menu){menu.remove();menu=null}
+    if(dim){dim.remove();dim=null}
+    els=[];items=[];hi=-1;mode='';trigger.setAttribute('aria-expanded','false')
+    document.removeEventListener('keydown',onKey,true);document.removeEventListener('pointerdown',onOutside,true)
+  }
+  function choose(i){const it=items[i];close();if(it&&it.run)it.run()}
+  function onKey(e){
+    if(!menu)return
+    if(e.key==='Escape'){e.preventDefault();close();trigger.focus();return}
+    const k=els.indexOf(document.activeElement)
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();els[(k+(e.key==='ArrowDown'?1:-1)+els.length)%els.length].focus()}
+    if((e.key==='Enter'||e.key===' ')&&k>=0){e.preventDefault();choose(k)}
+  }
+  function onOutside(e){if(mode==='tap'&&menu&&!menu.contains(e.target)&&!trigger.contains(e.target))close()}
+  function build(m){
+    items=getItems();if(!items.length)return
+    mode=m;dim=el('div','sm-dim');menu=el('div','smenu');menu.setAttribute('role','menu')
+    items.forEach((it,i)=>{
+      const x=el('div','sm-item'+(it.danger?' danger':''));x.setAttribute('role','menuitem');x.tabIndex=-1
+      x.append(el('span','',it.label));if(it.hint)x.append(el('small','',it.hint))
+      x.addEventListener('click',()=>{if(mode==='tap')choose(i)})
+      els.push(x);menu.append(x)
+    })
+    document.body.append(dim,menu)
+    const r=trigger.getBoundingClientRect(),w=menu.offsetWidth,h=menu.offsetHeight
+    let left=Math.min(Math.max(12,r.right-w),window.innerWidth-w-12)
+    let top=r.bottom+8
+    if(top+h>window.innerHeight-90){top=Math.max(12,r.top-h-8);menu.style.transformOrigin='bottom right'}
+    menu.style.left=left+'px';menu.style.top=top+'px'
+    trigger.setAttribute('aria-expanded','true')
+    document.addEventListener('keydown',onKey,true);document.addEventListener('pointerdown',onOutside,true)
+    if(navigator.vibrate)navigator.vibrate(12)
+  }
+  trigger.classList.add('sm-trig');trigger.setAttribute('aria-haspopup','menu');trigger.setAttribute('aria-expanded','false')
+  trigger.addEventListener('pointerdown',e=>{
+    if(e.button||trigger.disabled)return
+    if(menu&&mode==='tap'){close();return}
+    pid=e.pointerId;try{trigger.setPointerCapture(pid)}catch(x){}
+    document.body.dataset.gesture='1'
+    timer=setTimeout(()=>{timer=0;build('hold')},HOLD)
+  })
+  trigger.addEventListener('pointermove',e=>{if(menu&&mode==='hold')mark(hit(e.clientX,e.clientY))})
+  trigger.addEventListener('pointerup',e=>{
+    delete document.body.dataset.gesture
+    if(timer){clearTimeout(timer);timer=0;if(opts.tap){ping(trigger);opts.tap()}else build('tap');return}
+    if(menu&&mode==='hold')choose(hit(e.clientX,e.clientY))
+  })
+  trigger.addEventListener('pointercancel',()=>{delete document.body.dataset.gesture;clearTimeout(timer);timer=0;if(mode==='hold')close()})
+  trigger.addEventListener('contextmenu',e=>e.preventDefault())
+  trigger.addEventListener('click',e=>{
+    if(e.detail===0&&!trigger.disabled){if(opts.tap){opts.tap()}else{build('tap');if(els[0])els[0].focus()}}  // keyboard
+  })
+  return trigger
+}
+function powerIcon(){
+  const ns='http:'+'//www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true')
+  for(const d of ['M12 3v8','M6.6 6.6a8 8 0 1 0 10.8 0']){const p=document.createElementNS(ns,'path');p.setAttribute('d',d);svg.append(p)}
+  return svg
+}
 function acc(key,title,kids){
   const d=el('div','acc'+(opened.has(key)?' open':''))
   const h=el('button','acc-h');h.append(el('span','',title),el('span','chev'));h.setAttribute('aria-expanded',opened.has(key)?'true':'false')
@@ -393,7 +483,15 @@ function drawPanel(d,anim){
   hero.append(line)
   if(d.model||d.version)hero.append(el('div','model',[d.model,d.version?'version '+d.version:''].filter(Boolean).join('  ·  ')))
   if(d.stale)hero.append(el('div','hint','Newer files are installed but not running yet. Open Update this app and press Update & restart.'))
-  const quick=el('div','glass row');quick.append(btn('Wake',()=>act(n,'wake'),!d.canWake),go('Lock','lock',undefined,'Lock '+n+'?'),go('Screen off','screen_off'))
+  const pwr=el('button','b pwr');pwr.disabled=c;pwr.title='Power: hold and slide, or tap';pwr.setAttribute('aria-label','Power menu for '+n);pwr.append(powerIcon())
+  slideMenu(pwr,()=>[
+    {label:'Lock',run:()=>act(n,'lock')},
+    {label:'Screen off',run:()=>act(n,'screen_off')},
+    {label:'Cancel turn off',hint:'stops a waiting turn off or restart',run:()=>act(n,'shutdown_cancel')},
+    {label:'Restart',hint:'comes back by itself',run:()=>act(n,'restart')},
+    {label:'Sleep',hint:'unreachable until its power button is pressed',run:()=>act(n,'sleep')},
+    {label:'Turn off',hint:'asks for the password',danger:true,run:()=>askPassword(n)}])
+  const quick=el('div','glass row');quick.append(btn('Wake',()=>act(n,'wake'),!d.canWake),go('Lock','lock'),go('Screen off','screen_off'),pwr)
   const steam=el('div','steam');steam.append(el('h3','','STEAM'))
   const head=el('div','sh'),txt=el('div','txt')
   if(d.steam&&d.steam.user){
@@ -413,7 +511,12 @@ function drawPanel(d,anim){
   }
   const games=d.games||data.games||[]
   if(!games.includes(picked[n]))picked[n]=games[0]||''
-  const s1=el('div','row');s1.append(go('Steam','steam_open'),go('Big Picture','steam_bigpicture'),go('Show game','game_focus'))
+  const steamBtn=el('button','b','Steam');steamBtn.disabled=c
+  slideMenu(steamBtn,()=>[
+    {label:'Big Picture',run:()=>act(n,'steam_bigpicture')},
+    {label:'Show game',hint:'bring the running game to the front',run:()=>act(n,'game_focus')},
+    {label:'Close game',hint:'closes the running game',danger:true,run:()=>act(n,'close_game')}],{tap:()=>act(n,'steam_open')})
+  const s1=el('div','row');s1.append(steamBtn,go('Big Picture','steam_bigpicture'),go('Show game','game_focus'))
   const ban=el('div','gbanner'),gimg=el('div','gimg');gimg.dataset.key=gaKey(n,picked[n])
   const chip=el('button','gchip','Change picture');chip.addEventListener('click',()=>pickPicture(picked[n]))
   const gdd=dropdown(games,picked[n],v=>{picked[n]=v;gimg.dataset.key=gaKey(n,v);gimg.style.backgroundImage='';paintGame(gaKey(n,v));ensureGameArt(d,v)},c||!games.length,o=>gaKey(n,o))
@@ -429,7 +532,7 @@ function drawPanel(d,anim){
     acc(n+'|apps','Open apps',[appMenu(d)]),
     acc(n+'|code','Coding',coding),
     acc(n+'|upd','Update this app',[go('Git pull','git_pull'),go('Update & restart','update_remote',undefined,'Update '+n+' and restart its remote? Reload this page in about 20 seconds.')]),
-    acc(n+'|sys','System',[go('Status','status'),go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?'),go('Restart','restart',undefined,'Restart '+n+'? It comes back by itself in about a minute.'),go('Sleep','sleep',undefined,'Sleep makes '+n+' unreachable from this phone until you press its power button. Sleep anyway?'),go('Cancel turn off','shutdown_cancel'),btn('Turn off',()=>askPassword(n),c,undefined,'danger')]))
+    acc(n+'|sys','System',[go('Status','status'),go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?')]))
   p.append(hero,quick,steam,more)
   for(const g of games)paintGame(gaKey(n,g))
 }
@@ -440,6 +543,7 @@ function render(anim){
   const d=devs.find(x=>x.name===active)
   document.body.dataset.theme=themeOf(d)
   drawTabs(devs);drawPanel(d,anim)
+  lastSig=JSON.stringify(data)+'|'+active
 }
 function switchTo(name){
   if(!data||name===active)return
@@ -471,8 +575,8 @@ async function refresh(){
     next.devices.reverse()
     data=next
     const sig=JSON.stringify(next)+'|'+active
-    if(sig===lastSig||document.querySelector('.dd.open'))return
-    lastSig=sig;render('')
+    if(sig===lastSig||document.body.dataset.gesture||document.querySelector('.dd.open,.smenu,.b.holding'))return
+    render('')
   }catch(err){if(err.status===401){token='';show()}}
 }
 async function loadArt(){

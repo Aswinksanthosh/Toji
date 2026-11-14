@@ -6,7 +6,7 @@ A phone page with fixed buttons per device. The main row is always visible: Wake
 - **Open apps**: a drop-down and an Open button. Built in: Discord, Spotify, Epic Games, Claude and ASUS GlideX (the last two are found by name in the laptop's Start menu, so they must be installed on that laptop). Add your own, see below.
 - **Coding**: start or stop Ollama, start Jarvis (local), and your own named buttons.
 - **Update this app**: **Git pull** (just pulls the latest code into the Jarvis folder, fast-forward only) and **Update & restart** (pulls, runs `npm install` only if the dependency files changed, then restarts the remote by itself; reload the page after about 20 seconds). It never touches your other projects or Jarvis itself. The version (short commit) that is **running** on each laptop is shown under its name, so you can see whether both are the same. If newer files are on the laptop but not running yet (for example you pulled by hand), the page says so, and **Update & restart** then restarts it.
-- **System**: status (graphics card temperature, battery, uptime), game mode (stops Jarvis and unloads the local models, never your other projects), restart (comes back by itself), sleep, **Turn off** and **Cancel turn off**.
+- **System**: status (graphics card temperature, battery, uptime), game mode (stops Jarvis and unloads the local models, never your other projects), (restart, sleep, turn off and cancel turn off moved to the **power icon**, see below).
 
 Restart, lock, sleep, close game, game mode and the coding buttons ask "are you sure?". Sleep warns that the phone cannot wake the laptop. There is no shutdown button on purpose: a shut-down laptop cannot be turned on from the phone. Close game ends every process that runs from a `steamapps\common` folder.
 
@@ -77,3 +77,10 @@ In each laptop's Steam panel, **Switch Steam account** lists the accounts Steam 
 
 ## Hold to confirm
 The risky buttons (Lock, Close game, Stop Ollama, Game mode, Restart, Sleep, Update & restart, and your own coding buttons) are **hold buttons**: they carry a small "hold" label, and you press and keep pressing for about a second while a bar fills. Let go early and nothing happens (the page just reminds you to keep holding); slide your finger off the button to cancel. It replaces the browser's "are you sure?" boxes. It also works with the keyboard (hold Enter or Space). **Turn off** is not a hold button: it asks for the password instead. Messages float over the page so they never move a button from under your finger.
+
+## Hold and slide menus
+Some buttons carry a small corner mark: **press and hold, slide to an option, let go to pick it.**
+- **Power icon** (next to Wake): hold it and slide to Lock, Screen off, Cancel turn off, Restart, Sleep or Turn off. Let go anywhere else to cancel. Turn off still asks for the password.
+- **Steam**: a quick tap opens Steam as before; hold and slide for Big Picture, Show game or Close game.
+- A quick tap on the power icon opens the same menu so you can tap an option instead (works with a mouse too). Keyboard: Enter opens it, arrows move, Enter picks, Escape closes.
+The page does not redraw while a menu, hold or drop-down is in use, so nothing moves under your finger.
