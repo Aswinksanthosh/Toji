@@ -246,7 +246,7 @@ test('info lists games, button names, apps, the model and the Steam user with th
   })
   const info = await a.info()
   assert.deepEqual(info, {
-    games: ['pubg'], buttons: ['my tests'], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'],
+    games: ['pubg'], gameArt: [], buttons: ['my tests'], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'],
     model: 'ROG Strix G614JV', steam: { user: 'Current Name', playing: 'pubg', avatar: false },
     mode: '', cap: { on: false, target: 70 }, governor: true,
   })
@@ -255,7 +255,7 @@ test('info lists games, button names, apps, the model and the Steam user with th
 
 test('info works with no Steam and no model (other systems, or a slow answer)', async () => {
   const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux', capEnabled: true, stateFile: 'none.json', readText: () => { throw new Error('none') } })
-  assert.deepEqual(await a.info(), { games: [], buttons: [], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'], model: '', steam: null, mode: '', cap: { on: false, target: 70 }, governor: false })
+  assert.deepEqual(await a.info(), { games: [], gameArt: [], buttons: [], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'], model: '', steam: null, mode: '', cap: { on: false, target: 70 }, governor: false })
   const b = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, run: async () => { throw new Error('x') }, platform: 'win32' })
   const info = await b.info()
   assert.equal(info.model, '')
@@ -412,4 +412,26 @@ test('by default the remote does not run its own graphics cap, so it never fight
   const info = await actions.info()
   assert.equal(info.cap, null)
   assert.equal(info.governor, false)
+})
+
+test('game pictures: only for games in your list, only from the games art folder, only small images', async () => {
+  const have = new Map([
+    ['art/games/pubg.jpg', 10],
+    ['art/games/cod.png', 5 * 1024 * 1024],
+    ['art/games/secret.png', 10],
+    ['art/games/../secret.png', 10],
+    ['art/games/portal 2.webp', 10],
+  ])
+  const a = createRemoteActions({
+    root: ROOT, launch: async () => {}, desktop: async () => {}, games: () => ['pubg', 'cod', 'Portal 2'], platform: 'linux', artDir: 'art',
+    exists: (f) => have.has(f.replace(/\\/g, '/')), fileSize: (f) => have.get(f.replace(/\\/g, '/')), readBytes: (f) => Buffer.from(f.replace(/\\/g, '/')),
+    stateFile: 'none.json', readText: () => { throw new Error('none') },
+  })
+  const pubg = await a.gameArt('PUBG')
+  assert.equal(pubg.type, 'image/jpeg')
+  assert.equal(String(pubg.bytes), 'art/games/pubg.jpg')
+  assert.equal(await a.gameArt('cod'), null)
+  assert.equal(String((await a.gameArt('portal 2')).bytes), 'art/games/portal 2.webp')
+  for (const bad of ['secret', '../secret', 'pubg/../secret', 'art/games/pubg', '', null, undefined, 'x'.repeat(80), 'pubg\u0000']) assert.equal(await a.gameArt(bad), null, String(bad))
+  assert.deepEqual((await a.info()).gameArt, ['pubg', 'Portal 2'])
 })

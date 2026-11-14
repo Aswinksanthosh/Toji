@@ -189,7 +189,11 @@ body[data-theme=tuf] .dd-btn,body[data-theme=tuf] .steam .b{border-radius:3px}
 .dd.open .chev,.acc.open .chev{transform:rotate(225deg) translateY(-2px)}
 .dd-list{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:6;margin:0;padding:4px;list-style:none;max-height:0;overflow:hidden;opacity:0;transform:translateY(-8px) scale(.98);transform-origin:top;transition:max-height .3s ease,opacity .25s,transform .25s;background:#0d1620;border:1px solid #3d6c8d;border-radius:12px;visibility:hidden}
 .dd.open .dd-list{max-height:230px;overflow:auto;opacity:1;transform:none;visibility:visible}
-.dd-list li{padding:11px 14px;border-radius:8px;cursor:pointer;color:#dfeaf2}
+.dd-list li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;color:#dfeaf2}
+.thumb{flex:0 0 38px;width:38px;height:38px;border-radius:6px;background:#101822 center/cover no-repeat}
+.gbanner{position:relative;height:112px;border-radius:var(--r);border:1px solid #2a475e;background:linear-gradient(135deg,#1b2838,#2a475e) center/cover no-repeat;overflow:hidden;display:flex;align-items:flex-end;animation:up .35s ease both}
+.gbanner::after{content:'';position:absolute;inset:0;background:linear-gradient(transparent 30%,rgba(0,0,0,.82))}
+.gname{position:relative;z-index:1;padding:8px 12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;font-size:1.05rem;text-shadow:0 2px 6px #000}
 .dd-list li:active,.dd-list li.sel{background:#2a475e}
 .acc{border-top:1px solid var(--line)}
 .acc-h{width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:0;color:var(--a);padding:14px 4px;font:inherit;font-size:.86rem;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;transition:color .5s}
@@ -269,12 +273,14 @@ function acc(key,title,kids){
   h.addEventListener('click',()=>{const o=d.classList.toggle('open');h.setAttribute('aria-expanded',o?'true':'false');if(o)opened.add(key);else opened.delete(key)})
   d.append(h,b);return d
 }
-function dropdown(options,value,onPick,disabled){
+function dropdown(options,value,onPick,disabled,thumb){
   const dd=el('div','dd'),b=el('button','dd-btn');b.disabled=!!disabled
   const label=el('span','',value||'No games yet');b.append(label,el('span','chev'))
   const ul=el('ul','dd-list');ul.setAttribute('role','listbox')
   for(const o of options){
-    const li=el('li',o===value?'sel':'',o);li.setAttribute('role','option')
+    const li=el('li',o===value?'sel':'');li.setAttribute('role','option')
+    if(thumb){const t=el('span','thumb');t.dataset.key=thumb(o);li.append(t)}
+    li.append(el('span','',o))
     li.addEventListener('click',e=>{e.stopPropagation();label.textContent=o;for(const x of ul.children)x.classList.remove('sel');li.classList.add('sel');dd.classList.remove('open');onPick(o)})
     ul.append(li)
   }
@@ -282,7 +288,20 @@ function dropdown(options,value,onPick,disabled){
   dd.append(b,ul);return dd
 }
 document.addEventListener('click',()=>{for(const x of document.querySelectorAll('.dd.open'))x.classList.remove('open')})
-const avatars={}
+const avatars={},gameArts={}
+function gaKey(n,g){return n+'|'+g}
+function paintArt(node,url){node.style.backgroundImage='url("'+url+'")'}
+function paintGame(k){const url=gameArts[k];if(!url)return;for(const x of document.querySelectorAll('.thumb,.gbanner'))if(x.dataset.key===k)paintArt(x,url)}
+async function ensureGameArt(d,g){
+  const k=gaKey(d.name,g)
+  if(gameArts[k]){paintGame(k);return}
+  if(gameArts[k]!==undefined||!(d.gameArt&&d.gameArt.includes(g)))return
+  gameArts[k]=''
+  try{
+    const r=await fetch('/api/gameart',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+token},body:JSON.stringify({device:d.name,game:g})})
+    if(r.status===200){gameArts[k]=URL.createObjectURL(await r.blob());paintGame(k)}
+  }catch(e){delete gameArts[k]}
+}
 function avatarKey(d){return d.name+'|'+((d.steam&&d.steam.user)||'')}
 function paintAvatar(av,url){av.style.backgroundImage='url("'+url+'")';av.textContent=''}
 async function ensureAvatar(d,av){
@@ -352,8 +371,10 @@ function drawPanel(d,anim){
   const games=d.games||data.games||[]
   if(!games.includes(picked[n]))picked[n]=games[0]||''
   const s1=el('div','row');s1.append(go('Steam','steam_open'),go('Big Picture','steam_bigpicture'),go('Show game','game_focus'))
-  const s2=el('div','row');s2.append(dropdown(games,picked[n],v=>{picked[n]=v},c||!games.length),btn('Start game',()=>act(n,'steam_game',picked[n]),c||!games.length,undefined,'go'),go('Close game','close_game',undefined,'Close the running game on '+n+'?'))
-  steam.append(s1,s2)
+  const ban=el('div','gbanner');ban.dataset.key=gaKey(n,picked[n]);const gname=el('span','gname',picked[n]||'No games yet');ban.append(gname);paintGame(gaKey(n,picked[n]))
+  const s2=el('div','row');s2.append(dropdown(games,picked[n],v=>{picked[n]=v;ban.dataset.key=gaKey(n,v);gname.textContent=v;ban.style.backgroundImage='';ban.style.animation='none';void ban.offsetWidth;ban.style.animation='';paintGame(gaKey(n,v));ensureGameArt(d,v)},c||!games.length,o=>gaKey(n,o)),btn('Start game',()=>act(n,'steam_game',picked[n]),c||!games.length,undefined,'go'),go('Close game','close_game',undefined,'Close the running game on '+n+'?'))
+  steam.append(ban,s1,s2)
+  for(const g of games)ensureGameArt(d,g)
   const coding=[go('Start Ollama','ollama_start'),go('Stop Ollama','ollama_stop','','Stop Ollama on '+n+'?'),go('Start Jarvis','jarvis_start'),go('Update Jarvis','git_pull')]
   for(const b of d.buttons||[])coding.push(go(b,'button',b,'Run "'+b+'" on '+n+'?'))
   const more=el('div','glass')
@@ -363,6 +384,7 @@ function drawPanel(d,anim){
     acc(n+'|code','Coding',coding),
     acc(n+'|sys','System',[go('Status','status'),go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?'),go('Restart','restart',undefined,'Restart '+n+'? It comes back by itself in about a minute.'),go('Sleep','sleep',undefined,'Sleep makes '+n+' unreachable from this phone until you press its power button. Sleep anyway?')]))
   p.append(hero,quick,modes,steam,more)
+  for(const g of games)paintGame(gaKey(n,g))
 }
 function render(anim){
   const devs=data.devices

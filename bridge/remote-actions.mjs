@@ -492,6 +492,24 @@ export function createRemoteActions({
     }
     return null
   }
+  /** Picture for a game: art/games/<game name>.(png|jpg|webp). Only names from your own games list, so nothing else can be reached. */
+  function gameArtFile(name) {
+    const key = String(name ?? '').toLowerCase().trim()
+    if (!/^[a-z0-9 _.+-]{1,60}$/.test(key) || key.includes('..') || !games().map((g) => String(g).toLowerCase()).includes(key)) return null
+    for (const ext of Object.keys(IMAGE_TYPES)) {
+      const file = join(artDir, 'games', `${key}.${ext}`)
+      try {
+        if (exists(file) && fileSize(file) <= 1.5 * 1024 * 1024) return { file, type: IMAGE_TYPES[ext] }
+      } catch {
+        // Unreadable: try the next one.
+      }
+    }
+    return null
+  }
+  async function gameArt(name) {
+    const found = gameArtFile(name)
+    return found ? { type: found.type, bytes: readBytes(found.file) } : null
+  }
   async function avatar() {
     const found = avatarFile(await steamInfo())
     return found ? { type: found.type, bytes: readBytes(found.file) } : null
@@ -508,6 +526,7 @@ export function createRemoteActions({
       return {
         games: games(),
         buttons: Object.keys(knownButtons(buttonsFile)),
+        gameArt: games().filter((g) => gameArtFile(g)),
         apps: [...Object.keys(APPS), ...Object.keys(START_APPS), ...Object.keys(knownRemoteApps(appsFile))],
         model,
         steam: steam ? { user: steam.user, playing: steam.playing, avatar: Boolean(avatarFile(steam)) } : null,
@@ -517,5 +536,6 @@ export function createRemoteActions({
       }
     },
     avatar,
+    gameArt,
   }
 }

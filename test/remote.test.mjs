@@ -292,3 +292,50 @@ test('mode, cap and governor reach the page, and odd values from an agent are cl
   assert.equal(odd.governor, false)
   assert.equal(odd.steam.avatar, false)
 })
+
+test('the agent serves a game picture only with the token, and the hub asks for it only after unlocking', async (t) => {
+  const { httpGameArt } = await import('../bridge/remote.mjs')
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47])
+  const asked = []
+  const s = await startAgent({ token: TOKEN, port: 0, host: '127.0.0.1', run: async () => 'ok', gameArt: async (name) => (asked.push(name), name === 'pubg' ? { type: 'image/png', bytes: png } : null) })
+  t.after(() => s.close())
+  const url = `http://127.0.0.1:${s.port}`
+  assert.equal((await fetch(url + '/agent/gameart?name=pubg')).status, 401)
+  assert.deepEqual(asked, [])
+  const get = httpGameArt(TOKEN)
+  assert.deepEqual((await get({ agent: url }, 'pubg')).bytes, png)
+  assert.equal(await get({ agent: url }, 'cod'), null)
+  assert.equal(await get({ agent: url }, '../../etc/passwd'), null)
+  assert.deepEqual(asked, ['pubg', 'cod', '../../etc/passwd'])
+  assert.equal(await httpGameArt('wrong-token-wrong-token-1234')({ agent: url }, 'pubg'), null)
+
+  const hubAsked = []
+  const h = await startHub({
+    password: PASSWORD, port: 0, host: '127.0.0.1',
+    getDevices: () => DEVICES, getGames: () => [], wake: async () => {}, forward: async () => 'ok', ping: async () => true,
+    getGameArt: async (d, game) => (hubAsked.push([d.agent, game]), game === 'pubg' ? { type: 'image/png', bytes: png } : null),
+  })
+  t.after(() => h.close())
+  const hurl = `http://127.0.0.1:${h.port}`
+  const post = (body, token) => fetch(hurl + '/api/gameart', { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) })
+  const login = await (await fetch(hurl + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }) })).json()
+  assert.equal((await post({ device: 'laptop-a', game: 'pubg' })).status, 401)
+  assert.deepEqual(hubAsked, [])
+  const ok = await post({ device: 'laptop-a', game: 'pubg' }, login.token)
+  assert.equal(ok.status, 200)
+  assert.equal(ok.headers.get('content-type'), 'image/png')
+  assert.equal((await post({ device: 'laptop-a', game: 'cod' }, login.token)).status, 204)
+  assert.equal((await post({ device: 'wake-only', game: 'pubg' }, login.token)).status, 204)
+  assert.equal((await post({ device: 'nobody', game: 'pubg' }, login.token)).status, 204)
+  assert.equal((await post({ device: 'laptop-a', game: 5 }, login.token)).status, 204)
+  assert.equal((await post({ device: 'laptop-a' }, login.token)).status, 204)
+  assert.deepEqual(hubAsked.map((x) => x[1]), ['pubg', 'cod'])
+})
+
+test('the list of games that have a picture reaches the page cleaned up', async (t) => {
+  const { httpInfo } = await import('../bridge/remote.mjs')
+  const s = await startAgent({ token: TOKEN, port: 0, host: '127.0.0.1', run: async () => 'ok', info: () => ({ games: ['pubg'], gameArt: ['pubg', 5, 'x'.repeat(100)] }) })
+  t.after(() => s.close())
+  const got = await httpInfo(TOKEN)({ agent: `http://127.0.0.1:${s.port}` })
+  assert.deepEqual(got.gameArt, ['pubg', 'x'.repeat(60)])
+})

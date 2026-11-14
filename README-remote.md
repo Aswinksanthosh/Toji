@@ -70,3 +70,6 @@ Run on each laptop (adds PUBG and Call of Duty; `cod` is the Steam hub that hold
 Create `C:\Users\<you>\.jarvis\remote-apps.json` on a laptop: the button name, and the app's name exactly as the Start menu shows it:
 `{ "vs code": "Visual Studio Code", "obs": "OBS Studio" }`
 To see the exact names on a laptop, run: `Get-StartApps | Select-Object Name`. The phone only sends the button name; it can never open anything that is not in this file or the built-in list. Built-in names cannot be replaced.
+
+## Game pictures
+Each game in the Steam panel can have a picture: a banner above the drop-down and a small thumbnail in the list. On each laptop, put one image per game in `C:\Users\<you>\.jarvis\art\games\`, named after the game as it appears in `games.json`, for example `pubg.jpg` and `cod.jpg` (png, jpg or webp, up to 1.5 MB). Create the folder first: `New-Item -ItemType Directory -Force "$HOME\.jarvis\art\games"`. Games without a picture simply show their name. The pictures stay on the laptop and are sent to the phone only after the password. They are not part of this repository: game artwork belongs to its publisher, so keep it on your own machines.
