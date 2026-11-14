@@ -108,13 +108,28 @@ export function knownButtons(file = join(homedir(), '.jarvis', 'buttons.json')) 
   return out
 }
 
-function defaultRun(file, args, { timeout = 15_000, cwd } = {}) {
+/** First useful line of a command's error output (git writes the real reason to stderr). */
+const firstLine = (text) => String(text ?? '').split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? ''
+
+export function runCommand(file, args, { timeout = 15_000, cwd } = {}) {
   return new Promise((resolve, reject) => {
     // The callback also receives a failure to start, so nothing is left unhandled.
-    execFile(file, args, { windowsHide: true, timeout, cwd, maxBuffer: 1 << 20 }, (err, stdout) =>
-      err ? reject(new Error(String(err.message).split('\n')[0])) : resolve(String(stdout)),
+    execFile(file, args, { windowsHide: true, timeout, cwd, maxBuffer: 1 << 20 }, (err, stdout, stderr) =>
+      err ? reject(new Error(firstLine(stderr) || firstLine(err.message))) : resolve(String(stdout)),
     )
   })
+}
+const defaultRun = runCommand
+
+/** A plain sentence for the ways updating from GitHub usually fails. */
+export function explainGit(message) {
+  const m = String(message ?? '')
+  if (/would be overwritten|local changes|unstaged|uncommitted/i.test(m)) return 'This laptop has changed files in the Jarvis folder that block the update. Run git status there.'
+  if (/not a git repository/i.test(m)) return 'The Jarvis folder is not a git folder.'
+  if (/ENOENT|not recognized|cannot find/i.test(m)) return 'Git was not found by the remote. Is Git installed for this Windows user?'
+  if (/resolve host|unable to access|failed to connect|timed out|ETIMEDOUT/i.test(m)) return 'This laptop cannot reach GitHub right now.'
+  if (/fast-forward|diverge/i.test(m)) return 'This laptop has its own commits, so it cannot fast-forward.'
+  return m.slice(0, 140) || 'The update failed.'
 }
 
 const encode = (script) => Buffer.from(script, 'utf16le').toString('base64')
@@ -330,7 +345,7 @@ export function createRemoteActions({
         return 'Starting Jarvis (local). It opens a window on the laptop.'
       }
       case 'git_pull': {
-        const out = await run('git', ['-C', root, 'pull', '--ff-only'], { timeout: 60_000 })
+        const out = await gitPull()
         const last = out.trim().split(/\r?\n/).at(-1) || 'Done.'
         return `Update: ${last.slice(0, 120)}`
       }
@@ -431,10 +446,21 @@ export function createRemoteActions({
     return value
   }
 
+  // npm rewrites package-lock.json on the laptop, and git then refuses to pull over it.
+  // It is a generated file, so it is put back first. Nothing else is touched.
+  async function gitPull() {
+    await run('git', ['-C', root, 'checkout', '--', 'package-lock.json']).catch(() => {})
+    try {
+      return await run('git', ['-C', root, 'pull', '--ff-only'], { timeout: 60_000 })
+    } catch (err) {
+      throw new Error(explainGit(err?.message))
+    }
+  }
+
   async function updateRemote() {
     const head = async () => (await run('git', ['-C', root, 'rev-parse', 'HEAD'])).trim()
     const before = await head()
-    await run('git', ['-C', root, 'pull', '--ff-only'], { timeout: 60_000 })
+    await gitPull()
     const after = await head()
     versionCache.at = 0
     if (before === after) return 'Already up to date. Nothing to restart.'

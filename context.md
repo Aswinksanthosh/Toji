@@ -60,6 +60,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - The remote's switch bar shows laptops in reverse order of `devices.json` (owner's wish: TUF on the left, ROG on the right); the first laptop in the file is the one it opens on.
 - Removed at the owner's request: the MODE block (power saving, balanced, gaming) from the remote page. The `mode_*`/`cap_*` agent actions and `Setup-Governor.cmd` are still in the code but unused (candidates for deletion if the owner wants).
 - Added: game pictures chosen on the phone: tap a game banner, pick a picture; the page shrinks it and the hub stores it in `~/.jarvis/art/games/` (`POST /api/gameart/upload`, password session, magic-byte check, 1.5 MB, known game names only). Served before a laptop's own file. Not checked in a real browser yet.
+- Fixed: Git pull / Update & restart failed when `npm install` had rewritten `package-lock.json` on a laptop (git refuses to pull over it) and the error shown was only the command line. Now the lock file is put back (`git checkout -- package-lock.json`, only that file) before the fast-forward-only pull, and failures show git's real reason in plain words (`explainGit`).
 - Added: "Update this app" in the remote: `git_pull` (fast-forward only) and `update_remote` (pull, `npm install` only when package files changed, then a detached PowerShell stops only `remote.mjs` node processes and starts the `Jarvis Remote Buttons` task, or `node scripts\\remote.mjs` if no task). Each laptop's short commit is shown on the page (`version` in `/agent/info`).
 - Added: game pictures in the remote (banner plus thumbnails) from `~/.jarvis/art/games/<game>.(png|jpg|webp)` on each laptop, served through the agent and the authenticated hub as blob images; only names from `games.json`, never committed (third-party artwork).
 - Added: the remote's Open apps menu (drop-down plus Open). Built-in: discord, spotify, epic (web addresses), claude and glidex (found by name with `Get-StartApps`, wildcard only for built-ins), plus the owner's `~/.jarvis/remote-apps.json` (exact Start-menu names). The phone sends only a key.
@@ -86,7 +87,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - `npm audit --omit=dev`: after `npm audit fix` only 3 high issues remain, all in the unused Kokoro voice library (`kokoro-js`, `sharp`); no fix exists upstream. Re-run the audit now and then.
 
 ## Verify after editing
-`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (193 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
+`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (196 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
 
 ## Git
 Work on `main` of the owner's fork. One commit per change, with the attribution lines the session gives. Do not force-push without approval, and do not open a pull request unless asked.

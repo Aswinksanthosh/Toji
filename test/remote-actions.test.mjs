@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
-import { APPS, REMOTE_ACTIONS, START_APPS, cleanModel, createRemoteActions, knownButtons, knownRemoteApps, parseSteamLogin, parseSteamUser } from '../bridge/remote-actions.mjs'
+import { APPS, REMOTE_ACTIONS, START_APPS, cleanModel, createRemoteActions, explainGit, knownButtons, knownRemoteApps, parseSteamLogin, parseSteamUser, runCommand } from '../bridge/remote-actions.mjs'
 
 const ROOT = 'C:\\Users\\me\\Toji'
 
@@ -480,4 +480,37 @@ test('the version shown on the page is the short commit, cleaned', async () => {
   assert.equal((await good.info()).version, 'a1b2c3d')
   const odd = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux', run: async () => 'not a hash; calc' })
   assert.equal((await odd.info()).version, '')
+})
+
+test('before pulling, only the generated lock file is put back, then the pull is fast-forward only', async () => {
+  const calls = []
+  const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', run: async (f, args) => (calls.push(args), 'Already up to date.\n') })
+  assert.equal(await a.run('git_pull'), 'Update: Already up to date.')
+  assert.deepEqual(calls[0], ['-C', ROOT, 'checkout', '--', 'package-lock.json'])
+  assert.deepEqual(calls[1], ['-C', ROOT, 'pull', '--ff-only'])
+  assert.equal(calls.length, 2)
+  // a failing lock-file reset must not stop the update
+  const calls2 = []
+  const b = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', run: async (f, args) => { calls2.push(args); if (args.includes('checkout')) throw new Error('pathspec'); return 'ok\n' } })
+  assert.match(await b.run('git_pull'), /^Update: ok/)
+  assert.ok(calls2.some((c) => c.includes('pull')))
+})
+
+test('update failures are explained in plain words', async () => {
+  assert.match(explainGit('error: Your local changes to the following files would be overwritten by merge:'), /changed files .* block the update/)
+  assert.match(explainGit('fatal: not a git repository (or any of the parent directories): .git'), /not a git folder/)
+  assert.match(explainGit('spawn git ENOENT'), /Git was not found/)
+  assert.match(explainGit('fatal: unable to access \'https://github.com/x/\': Could not resolve host: github.com'), /cannot reach GitHub/)
+  assert.match(explainGit('fatal: Not possible to fast-forward, aborting.'), /cannot fast-forward/)
+  assert.equal(explainGit('x'.repeat(500)).length, 140)
+  assert.equal(explainGit(''), 'The update failed.')
+  const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', run: async (f, args) => { if (args.includes('pull')) throw new Error('error: Your local changes would be overwritten'); return '' } })
+  await assert.rejects(a.run('git_pull'), /block the update/)
+  await assert.rejects(a.run('update_remote'), /block the update/)
+})
+
+test('a failing command reports the real reason from its error output, not just the command line', async () => {
+  await assert.rejects(runCommand(process.execPath, ['-e', "console.error('error: the real reason'); process.exit(1)"]), /^Error: error: the real reason$/)
+  await assert.rejects(runCommand('no-such-program-xyz', []), /ENOENT/)
+  assert.equal(String(await runCommand(process.execPath, ['-e', "console.log('fine')"])).trim(), 'fine')
 })
