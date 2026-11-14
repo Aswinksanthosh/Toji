@@ -312,8 +312,10 @@ test('the delay can be turned off, and a failed focus never crashes the agent', 
 })
 
 test('show game focuses the biggest Steam game window and says what it found', async () => {
-  assert.equal(await lab({ run: async () => 'PUBG\r\n' }).actions.run('game_focus'), 'Showing PUBG.')
-  assert.match(await lab({ run: async () => '' }).actions.run('game_focus'), /No game window/)
+  assert.equal(await lab({ run: async () => 'ok|PUBG\r\n' }).actions.run('game_focus'), 'Showing PUBG.')
+  assert.match(await lab({ run: async () => 'noproc\r\n' }).actions.run('game_focus'), /No running game was found in a Steam library folder/)
+  assert.match(await lab({ run: async () => 'nowindow|TslGame, BEService\r\n' }).actions.run('game_focus'), /Found the game \(TslGame, BEService\) but it has no window/)
+  assert.match(await lab({ run: async () => '' }).actions.run('game_focus'), /No running game was found/)
 })
 
 test('gaming mode sets the Windows power mode and turns the graphics cap on; power saving and balanced turn it off', async () => {
@@ -645,4 +647,30 @@ test('info lists the remembered accounts without their login names, and the sign
   assert.deepEqual(info.steam.accounts, [{ id: '76561198000000001', name: 'Main Player' }, { id: '76561198000000002', name: 'Second Player' }])
   assert.equal(info.steam.id, '76561198000000001')
   assert.doesNotMatch(JSON.stringify(info), /mainacct|second_acct|RememberPassword/)
+})
+
+test('games are found through WMI by their folder, so a game guarded by an anti-cheat is still found', async () => {
+  const scripts = []
+  const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', run: async (f, args) => { scripts.push(decode(args)); return 'ok|TslGame\r\n' } })
+  assert.equal(await a.run('game_focus'), 'Showing TslGame.')
+  const focus = scripts[0]
+  assert.match(focus, /Get-CimInstance Win32_Process/)
+  assert.match(focus, /\$_\.ExecutablePath -like '\*\\steamapps\\common\\\*'/)
+  assert.match(focus, /EnumWindows/)
+  assert.match(focus, /Biggest\(\[uint32\[\]\]/)
+  assert.match(focus, /SetForegroundWindow/)
+  // no step depends on reading a protected game's path or main-window flag through Get-Process
+  assert.doesNotMatch(focus, /Get-Process[^\n]*Path/)
+  assert.doesNotMatch(focus, /MainWindowHandle/)
+  await a.run('close_game')
+  assert.match(scripts[1], /Get-CimInstance Win32_Process/)
+  assert.doesNotMatch(scripts[1], /Get-Process -ErrorAction SilentlyContinue \| Where-Object \{ \$_\.Path/)
+})
+
+test('close game says what it closed and what refused to close', async () => {
+  const run = (out) => createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'win32', run: async () => out })
+  assert.equal(await run('').run('close_game'), 'No Steam game is running.')
+  assert.equal(await run('PUBG\r\nBattlEye\r\n').run('close_game'), 'Closed: PUBG, BattlEye.')
+  assert.equal(await run('TslGame\r\nBEService\r\n!TslGame\r\n').run('close_game'), 'Closed: BEService. Could not close: TslGame (protected or still saving). Close it in the game.')
+  assert.match(await run('TslGame\r\n!TslGame\r\n').run('close_game'), /^Could not close: TslGame/)
 })

@@ -144,9 +144,15 @@ const keyScript = (vk, times) =>
 const SCREEN_OFF = String.raw`Add-Type -Namespace W -Name M -MemberDefinition '[DllImport("user32.dll")] public static extern int SendMessage(int h, int m, int w, int l);'
 [W.M]::SendMessage(0xFFFF, 0x0112, 0xF170, 2) | Out-Null`
 
-const CLOSE_GAME = String.raw`$g = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path -like '*\steamapps\common\*' })
-$g | ForEach-Object { $_.ProcessName } | Sort-Object -Unique
-$g | Stop-Process -Force -ErrorAction SilentlyContinue`
+// Games are found through WMI (it can still read the path of games guarded by an anti-cheat, which Get-Process cannot).
+// Lines starting with "!" are programs that were still running two seconds later.
+const CLOSE_GAME = String.raw`$g = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like '*\steamapps\common\*' })
+$g | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_.Name) } | Sort-Object -Unique
+$g | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+if ($g.Count) {
+  Start-Sleep -Seconds 2
+  $g | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } | ForEach-Object { '!' + [IO.Path]::GetFileNameWithoutExtension($_.Name) } | Sort-Object -Unique
+}`
 
 // Only processes that run from this Jarvis folder, so your other projects keep running.
 const gameModeScript = (root) => String.raw`$root = ${psQuote(root)}
@@ -181,13 +187,47 @@ const MODES = {
 }
 export const GOVERNOR_TASK = 'Jarvis GPU Governor'
 
-const FOCUS_GAME = String.raw`Add-Type -Namespace W -Name F -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport("user32.dll")] public static extern void keybd_event(byte b, byte s, uint f, UIntPtr e);'
-$g = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path -like '*\steamapps\common\*' -and $_.MainWindowHandle -ne 0 } | Sort-Object WorkingSet64 -Descending | Select-Object -First 1
-if ($g) {
-  [W.F]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero); [W.F]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
-  [W.F]::ShowWindow($g.MainWindowHandle, 9) | Out-Null
-  [W.F]::SetForegroundWindow($g.MainWindowHandle) | Out-Null
-  $g.ProcessName
+const FOCUS_GAME = String.raw`Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class W2 {
+  public delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc p, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte b, byte s, uint f, UIntPtr e);
+  public struct RECT { public int L, T, R, B; }
+  public static uint PidOf(IntPtr h) { uint pid; GetWindowThreadProcessId(h, out pid); return pid; }
+  public static IntPtr Biggest(uint[] pids) {
+    IntPtr best = IntPtr.Zero; long area = 0;
+    EnumWindows(delegate (IntPtr h, IntPtr l) {
+      if (!IsWindowVisible(h)) return true;
+      if (Array.IndexOf(pids, PidOf(h)) < 0) return true;
+      RECT r; GetWindowRect(h, out r);
+      long a = (long)(r.R - r.L) * (r.B - r.T);
+      if (a > area) { area = a; best = h; }
+      return true;
+    }, IntPtr.Zero);
+    return best;
+  }
+}
+'@
+$procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like '*\steamapps\common\*' })
+if ($procs.Count) {
+  $h = [W2]::Biggest([uint32[]]@($procs | ForEach-Object { [uint32]$_.ProcessId }))
+  if ($h -ne [IntPtr]::Zero) {
+    [W2]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero); [W2]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+    [W2]::ShowWindow($h, 9) | Out-Null
+    [W2]::SetForegroundWindow($h) | Out-Null
+    $wp = [W2]::PidOf($h)
+    'ok|' + [IO.Path]::GetFileNameWithoutExtension(($procs | Where-Object { $_.ProcessId -eq $wp } | Select-Object -First 1).Name)
+  } else {
+    'nowindow|' + (($procs | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_.Name) } | Sort-Object -Unique | Select-Object -First 3) -join ', ')
+  }
+} else { 'noproc' }
 }`
 
 const startAppScript = (name, exact) => String.raw`$n = ${psQuote(name)}
@@ -355,8 +395,14 @@ export function createRemoteActions({
         await ps(SCREEN_OFF)
         return 'Screen off. Moving the mouse turns it back on.'
       case 'close_game': {
-        const names = (await ps(CLOSE_GAME)).split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
-        return names.length ? `Closed: ${names.join(', ')}.` : 'No Steam game is running.'
+        const lines = (await ps(CLOSE_GAME, { timeout: 20_000 })).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+        const stuck = lines.filter((l) => l.startsWith('!')).map((l) => l.slice(1))
+        const closed = lines.filter((l) => !l.startsWith('!') && !stuck.includes(l))
+        if (!lines.length) return 'No Steam game is running.'
+        const parts = []
+        if (closed.length) parts.push(`Closed: ${closed.join(', ')}.`)
+        if (stuck.length) parts.push(`Could not close: ${stuck.join(', ')} (protected or still saving). Close it in the game.`)
+        return parts.join(' ')
       }
       case 'game_mode': {
         const out = (await ps(gameModeScript(root), { timeout: 30_000 })).trim().split(/\r?\n/).at(-1) ?? ''
@@ -421,8 +467,10 @@ export function createRemoteActions({
   }
 
   async function focusGame() {
-    const name = (await ps(FOCUS_GAME)).trim().split(/\r?\n/)[0]
-    return name ? `Showing ${name}.` : 'No game window was found yet.'
+    const [kind, name] = ((await ps(FOCUS_GAME)).trim().split(/\r?\n/).at(-1) ?? '').split('|')
+    if (kind === 'ok' && name) return `Showing ${name.slice(0, 40)}.`
+    if (kind === 'nowindow') return `Found the game (${String(name ?? '').slice(0, 60)}) but it has no window to show yet.`
+    return 'No running game was found in a Steam library folder.'
   }
 
   const clampTarget = (n) => Math.min(Math.max(Math.round(Number(n) || 70), 60), 85)

@@ -61,6 +61,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - Removed at the owner's request: the MODE block (power saving, balanced, gaming) from the remote page. The `mode_*`/`cap_*` agent actions and `Setup-Governor.cmd` are still in the code but unused (candidates for deletion if the owner wants).
 - Changed: the game drop-down now lives inside the game banner (owner's wish); the picture is changed with a small "Change picture" button in the banner corner.
 - Added: game pictures chosen on the phone: press Change picture on the banner, pick a picture; the page shrinks it and the hub stores it in `~/.jarvis/art/games/` (`POST /api/gameart/upload`, password session, magic-byte check, 1.5 MB, known game names only). Served before a laptop's own file. Not checked in a real browser yet.
+- Fixed (untested on Windows): Show game said no game was found while PUBG was open: PUBG's anti-cheat hides its path from `Get-Process`. Show game and Close game now find games with WMI (`Get-CimInstance Win32_Process`, `ExecutablePath` under `steamapps\common`) and find the window by process id with EnumWindows (not MainWindowHandle); Show game says whether no game, or no window, was found; Close game reports programs that refused to close. No C# compiler was available to check the inline code, so the first real run matters.
 - Added: "Switch Steam account" in the Steam panel (remembered accounts only, with a confirmation).
 - Fixed: Update & restart said "Already up to date" when files had been pulled by hand but the running remote was older (page kept the old layout). The agent now remembers the commit it started with (`runningHead`, read in `scripts/remote.mjs`), update compares against that and restarts when it differs, and the page shows the running version plus a hint when newer files are waiting (`stale`).
 - Fixed: Git pull / Update & restart failed when `npm install` had rewritten `package-lock.json` on a laptop (git refuses to pull over it) and the error shown was only the command line. Now the lock file is put back (`git checkout -- package-lock.json`, only that file) before the fast-forward-only pull, and failures show git's real reason in plain words (`explainGit`).
@@ -90,7 +91,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - `npm audit --omit=dev`: after `npm audit fix` only 3 high issues remain, all in the unused Kokoro voice library (`kokoro-js`, `sharp`); no fix exists upstream. Re-run the audit now and then.
 
 ## Verify after editing
-`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (208 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
+`node --check bridge/*.mjs`, `npx tsc -b`, `npx oxlint`, `node --test` (210 pass, 1 skipped), and for page changes `npx vite build`. A browser check with Playwright works for UI changes (`window.__jarvis` exists only in the dev server).
 
 ## Git
 Work on `main` of the owner's fork. One commit per change, with the attribution lines the session gives. Do not force-push without approval, and do not open a pull request unless asked.
