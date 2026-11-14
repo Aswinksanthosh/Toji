@@ -552,8 +552,9 @@ test('the power icon and the Steam button have hold-and-slide menus, and their s
   t.after(() => h.close())
   const html = await (await fetch(h.url + '/')).text()
   for (const part of ['function slideMenu(', "aria-haspopup','menu'", 'setPointerCapture', 'touch-action:none', 'Turn off', "{tap:()=>act(n,'steam_open')}", 'Cancel turn off', "label:'Big Picture'", 'document.body.dataset.gesture']) assert.ok(html.includes(part), part)
-  // the menu class must not be the bare ".sm", which the tab labels already use
-  assert.doesNotMatch(html, /\.sm\{/)
+  // the menu class must not be a global ".sm" rule, because the tab labels already use ".sm" (inside ".tab")
+  assert.doesNotMatch(html, /(^|\n)\.sm\{/)
+  assert.match(html, /\.tab \.sm\{/)
   assert.match(html, /\.smenu\{position:fixed/)
   // the page never redraws while a menu, hold or drop-down is in use, and remembers what it drew
   assert.ok(html.includes("document.querySelector('.dd.open,.smenu,.b.holding')"))
