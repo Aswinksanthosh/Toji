@@ -48,6 +48,38 @@ function readJson(req) {
   })
 }
 
+function readBytes(req, max) {
+  return new Promise((resolve, reject) => {
+    let size = 0
+    const chunks = []
+    req.on('data', (c) => {
+      size += c.length
+      if (size > max) {
+        reject(Object.assign(new Error('That picture is too large.'), { status: 413 }))
+        req.destroy()
+        return
+      }
+      chunks.push(c)
+    })
+    req.on('end', () => resolve(Buffer.concat(chunks)))
+    req.on('error', reject)
+  })
+}
+
+/** What kind of picture these bytes really are, from the first bytes, whatever the sender claims. */
+export function sniffImage(b) {
+  if (b.length > 12 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png'
+  if (b.length > 12 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg'
+  if (b.length > 12 && b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp'
+  return null
+}
+const GAME_NAME = /^[a-z0-9 _.+-]{1,60}$/
+const cleanGame = (v) => {
+  const name = typeof v === 'string' ? v.toLowerCase().trim() : ''
+  return GAME_NAME.test(name) && !name.includes('..') ? name : ''
+}
+const MAX_PICTURE = 1.5 * 1024 * 1024
+
 const json = (res, status, obj, headers = {}) => {
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...headers })
   res.end(JSON.stringify(obj))
@@ -182,9 +214,11 @@ export const httpGameArt = (token) => async (device, game) => {
  * getArt(theme) gives { type, bytes } for an optional background picture, or null.
  * getAvatar(device) gives the Steam profile picture of that laptop's agent, or null.
  * getGameArt(device, game) gives the picture of one of that laptop's games, or null.
+ * artStore { list(), get(name), put(name, type, bytes) } keeps pictures chosen on the phone, here on the hub.
  */
-export async function startHub({ password, port = 8791, host = '0.0.0.0', getDevices, getGames, wake, forward, ping, info, getArt, getAvatar, getGameArt, allowPublic = false, now = Date.now }) {
+export async function startHub({ password, port = 8791, host = '0.0.0.0', getDevices, getGames, wake, forward, ping, info, getArt, getAvatar, getGameArt, artStore, allowPublic = false, now = Date.now }) {
   const auth = createPhoneAuth({ password, now })
+  const seenGames = new Set()
 
   const server = createServer(async (req, res) => {
     const ip = req.socket.remoteAddress
@@ -242,14 +276,30 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
         const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
         if (!auth.valid(bearer)) return json(res, 401, { error: 'Please unlock again.' })
         const { device: name, game } = await readJson(req)
+        const key = cleanGame(game)
+        // A picture chosen on the phone (kept here) wins over one a laptop has on its own disk.
+        let pic = key ? (artStore?.get(key) ?? null) : null
         const device = getDevices()[String(name ?? '').toLowerCase()]
-        const pic = device?.agent && typeof game === 'string' ? await getGameArt?.(device, game.slice(0, 60)) : null
+        if (!pic && key && device?.agent) pic = await getGameArt?.(device, key)
         if (!pic) {
           res.writeHead(204, { 'cache-control': 'no-store' })
           return res.end()
         }
         res.writeHead(200, { 'content-type': pic.type, 'content-length': pic.bytes.length, 'cache-control': 'private, max-age=60', 'x-content-type-options': 'nosniff' })
         return res.end(pic.bytes)
+      }
+
+      if (req.method === 'POST' && path === '/api/gameart/upload') {
+        const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
+        if (!auth.valid(bearer)) return json(res, 401, { error: 'Please unlock again.' })
+        if (!artStore) return json(res, 501, { error: 'This hub cannot keep pictures.' })
+        const key = cleanGame(new URL(req.url, 'http://hub').searchParams.get('game'))
+        if (!key || ![...seenGames, ...getGames().map((g) => String(g).toLowerCase())].includes(key)) return json(res, 400, { error: 'Unknown game.' })
+        const bytes = await readBytes(req, MAX_PICTURE)
+        const type = sniffImage(bytes)
+        if (!type) return json(res, 415, { error: 'That is not a png, jpeg or webp picture.' })
+        artStore.put(key, type, bytes)
+        return json(res, 200, { message: `Picture saved for ${key}.` })
       }
 
       if (req.method === 'POST' && (path === '/api/devices' || path === '/api/do')) {
@@ -281,7 +331,9 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
               }
             }),
           )
-          return json(res, 200, { devices: list, games: getGames() })
+          for (const g of getGames()) seenGames.add(String(g).toLowerCase())
+          for (const d of list) for (const g of d.games ?? []) seenGames.add(String(g).toLowerCase())
+          return json(res, 200, { devices: list, games: getGames(), art: artStore ? artStore.list() : [] })
         }
 
         const { device: name, action, game, arg } = await readJson(req)

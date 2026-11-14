@@ -352,3 +352,92 @@ test('only a plain short commit id from an agent reaches the page as the version
   body.version = 5
   assert.equal((await get()).version, '')
 })
+
+function memoryStore() {
+  const files = new Map()
+  return {
+    files,
+    list: () => [...files.keys()],
+    get: (name) => files.get(name) ?? null,
+    put: (name, type, bytes) => files.set(name, { type, bytes }),
+  }
+}
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40)])
+const JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(40)])
+const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP'), Buffer.alloc(40)])
+
+async function artHub(t, extra = {}) {
+  const store = memoryStore()
+  const asked = []
+  const s = await startHub({
+    password: PASSWORD, port: 0, host: '127.0.0.1',
+    getDevices: () => DEVICES, getGames: () => ['pubg', 'Cod'], wake: async () => {}, forward: async () => 'ok', ping: async () => true,
+    info: async (d) => (d.agent.endsWith('1:8790') ? { games: ['hades', 'portal 2'], buttons: [] } : null),
+    getGameArt: async (d, g) => (asked.push([d.agent, g]), g === 'hades' ? { type: 'image/png', bytes: PNG } : null),
+    artStore: store, ...extra,
+  })
+  t.after(() => s.close())
+  const url = `http://127.0.0.1:${s.port}`
+  const login = await (await fetch(url + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }) })).json()
+  const upload = (game, body, token = login.token, type = 'image/jpeg') => fetch(`${url}/api/gameart/upload?game=${encodeURIComponent(game)}`, { method: 'POST', headers: { 'content-type': type, ...(token ? { authorization: `Bearer ${token}` } : {}) }, body })
+  const art = (body) => fetch(url + '/api/gameart', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${login.token}` }, body: JSON.stringify(body) })
+  const devices = async () => (await fetch(url + '/api/devices', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${login.token}` }, body: '{}' })).json()
+  return { store, asked, url, login, upload, art, devices }
+}
+
+test('a picture chosen on the phone is saved on the hub, only after unlocking, only as a real picture, only for a known game, and only if small', async (t) => {
+  const h = await artHub(t)
+  assert.equal((await h.upload('pubg', PNG, '')).status, 401)
+  assert.equal(h.store.files.size, 0)
+  const ok = await h.upload('PUBG', PNG)
+  assert.equal(ok.status, 200)
+  assert.deepEqual(h.store.get('pubg'), { type: 'image/png', bytes: PNG })
+  assert.equal((await h.upload('cod', JPG)).status, 200)
+  assert.equal(h.store.get('cod').type, 'image/jpeg')
+  assert.equal((await h.upload('cod', WEBP, undefined, 'text/html')).status, 200)
+  assert.equal(h.store.get('cod').type, 'image/webp')
+  // a laptop's own games are known once the page has listed them
+  assert.equal((await h.upload('hades', PNG)).status, 400)
+  await h.devices()
+  assert.equal((await h.upload('hades', PNG)).status, 200)
+  assert.equal((await h.upload('portal 2', PNG)).status, 200)
+  const before = h.store.files.size
+  for (const bad of ['nope', '../secret', 'pubg/../x', '', 'x'.repeat(80), 'a\u0000b']) assert.equal((await h.upload(bad, PNG)).status, 400, bad)
+  assert.equal((await h.upload('pubg', Buffer.from('<svg onload=alert(1)>'))).status, 415)
+  assert.equal((await h.upload('pubg', Buffer.from('<html><script>'), undefined, 'image/png')).status, 415)
+  assert.equal((await h.upload('pubg', Buffer.alloc(0))).status, 415)
+  const big = await h.upload('pubg', Buffer.concat([PNG, Buffer.alloc(2 * 1024 * 1024)])).catch(() => ({ status: 413 }))
+  assert.equal(big.status, 413)
+  assert.equal(h.store.files.size, before)
+  assert.deepEqual(h.store.get('pubg'), { type: 'image/png', bytes: PNG })
+})
+
+test('pictures kept on the hub are served first and listed; a laptop\'s own picture is only the fallback', async (t) => {
+  const h = await artHub(t)
+  await h.upload('pubg', JPG)
+  const mine = await h.art({ device: 'laptop-a', game: 'PUBG' })
+  assert.equal(mine.status, 200)
+  assert.equal(mine.headers.get('content-type'), 'image/jpeg')
+  assert.deepEqual(h.asked, [])
+  const own = await h.art({ device: 'laptop-a', game: 'hades' })
+  assert.equal(own.status, 200)
+  assert.deepEqual(h.asked, [['http://100.1.1.1:8790', 'hades']])
+  assert.equal((await h.art({ device: 'laptop-a', game: 'nothing' })).status, 204)
+  assert.equal((await h.art({ device: 'laptop-a', game: '../../etc/passwd' })).status, 204)
+  assert.equal(h.asked.length, 2)
+  assert.deepEqual((await h.devices()).art, ['pubg'])
+})
+
+test('a hub without a picture store says so instead of failing', async (t) => {
+  const h = await artHub(t, { artStore: undefined })
+  assert.equal((await h.upload('pubg', PNG)).status, 501)
+  assert.deepEqual((await h.devices()).art, [])
+})
+
+test('the page has a file picker and tapping the banner opens it', async (t) => {
+  const h = await hub()
+  t.after(() => h.close())
+  const html = await (await fetch(h.url + '/')).text()
+  for (const part of ['id="pick"', 'accept="image/*"', '/api/gameart/upload', 'createImageBitmap', 'Change picture']) assert.ok(html.includes(part), part)
+  assert.doesNotMatch(html, /innerHTML|eval\(|style="|onclick=|onchange=/)
+})

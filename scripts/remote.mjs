@@ -3,7 +3,7 @@
 //   JARVIS_AGENT_TOKEN      (24+ chars) lets this machine act as an agent, and the hub talk to agents
 //   JARVIS_REMOTE_PASSWORD  (12+ chars) serves the phone page (the hub)
 // Devices come from ~/.jarvis/devices.json, games from ~/.jarvis/games.json.
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir, networkInterfaces } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -65,6 +65,47 @@ const getArt = (theme) => {
   return null
 }
 
+// Pictures chosen on the phone are kept here, on the machine that serves the page: ~/.jarvis/art/games/<game>.<ext>
+const GAME_ART_DIR = join(homedir(), '.jarvis', 'art', 'games')
+const GAME_ART_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }
+const artStore = {
+  list() {
+    try {
+      return [...new Set(readdirSync(GAME_ART_DIR).filter((f) => Object.hasOwn(GAME_ART_TYPES, f.split('.').pop().toLowerCase())).map((f) => f.slice(0, f.lastIndexOf('.')).toLowerCase()))]
+    } catch {
+      return []
+    }
+  },
+  get(name) {
+    for (const [ext, type] of Object.entries(GAME_ART_TYPES)) {
+      const file = join(GAME_ART_DIR, `${name}.${ext}`)
+      try {
+        if (existsSync(file) && statSync(file).size <= 1.5 * 1024 * 1024) return { type, bytes: readFileSync(file) }
+      } catch {
+        // Unreadable: try the next one.
+      }
+    }
+    return null
+  },
+  put(name, type, bytes) {
+    this.remove(name)
+    mkdirSync(GAME_ART_DIR, { recursive: true })
+    const ext = Object.keys(GAME_ART_TYPES).find((e) => GAME_ART_TYPES[e] === type)
+    const file = join(GAME_ART_DIR, `${name}.${ext}`)
+    writeFileSync(`${file}.tmp`, bytes)
+    renameSync(`${file}.tmp`, file)
+  },
+  remove(name) {
+    for (const ext of Object.keys(GAME_ART_TYPES)) {
+      try {
+        unlinkSync(join(GAME_ART_DIR, `${name}.${ext}`))
+      } catch {
+        // Not there.
+      }
+    }
+  },
+}
+
 if (password) {
   const { knownGames } = await import('../bridge/local.mjs').catch(() => ({ knownGames: () => ({}) }))
   await startHub({
@@ -79,6 +120,7 @@ if (password) {
     getArt,
     getAvatar: token ? httpAvatar(token) : undefined,
     getGameArt: token ? httpGameArt(token) : undefined,
+    artStore,
   })
   console.log(`[remote] phone page on, password protected. On your phone open: ${addresses(hubPort) || `port ${hubPort}`}`)
 }

@@ -171,13 +171,8 @@ body[data-theme=tuf] .b{text-transform:uppercase;letter-spacing:.08em;font-weigh
 body[data-theme=rog] .avatar{box-shadow:0 0 18px 0 rgba(255,79,163,.6)}
 body[data-theme=tuf] .avatar{border-radius:3px;clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
 .who{font-weight:700;color:#fff;font-size:1.05rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.modes{display:flex;flex-direction:column;gap:10px}
-.modes h3{margin:0;font-size:.7rem;letter-spacing:.28em;color:var(--a)}
-.segs{display:flex;gap:6px}
-.seg{flex:1;padding:12px 6px}
 body[data-theme] .b.active{background:var(--a);color:#000;border-color:var(--a);box-shadow:0 0 16px -2px var(--a);font-weight:700}
-.capline{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:.9rem;color:#d6e8ee}
-.hint{font-size:.78rem;color:#ffcf8a}
+
 .now{color:#a4d007;font-size:.88rem}
 .unk{color:#8a9aa6;font-size:.88rem}
 .steam .b{background:#2a475e;border-color:#3d6c8d;color:#dfeaf2;box-shadow:none}
@@ -191,7 +186,8 @@ body[data-theme=tuf] .dd-btn,body[data-theme=tuf] .steam .b{border-radius:3px}
 .dd.open .dd-list{max-height:230px;overflow:auto;opacity:1;transform:none;visibility:visible}
 .dd-list li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;color:#dfeaf2}
 .thumb{flex:0 0 38px;width:38px;height:38px;border-radius:6px;background:#101822 center/cover no-repeat}
-.gbanner{position:relative;height:112px;border-radius:var(--r);border:1px solid #2a475e;background:linear-gradient(135deg,#1b2838,#2a475e) center/cover no-repeat;overflow:hidden;display:flex;align-items:flex-end;animation:up .35s ease both}
+.gchip{position:absolute;top:8px;right:8px;z-index:1;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;padding:4px 9px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.3);border-radius:999px;color:#fff}
+.gbanner{cursor:pointer;position:relative;height:112px;border-radius:var(--r);border:1px solid #2a475e;background:linear-gradient(135deg,#1b2838,#2a475e) center/cover no-repeat;overflow:hidden;display:flex;align-items:flex-end;animation:up .35s ease both}
 .gbanner::after{content:'';position:absolute;inset:0;background:linear-gradient(transparent 30%,rgba(0,0,0,.82))}
 .gname{position:relative;z-index:1;padding:8px 12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;font-size:1.05rem;text-shadow:0 2px 6px #000}
 .dd-list li:active,.dd-list li.sel{background:#2a475e}
@@ -234,6 +230,7 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:14
 <header>REMOTE</header>
 <form id="login" autocomplete="off"><label for="pw">Password</label>
 <input id="pw" type="password" autocomplete="current-password" required><button class="b">Unlock</button><div id="lerr"></div></form>
+<input type="file" id="pick" accept="image/*" hidden>
 <main id="app" hidden><div id="msg" class="msg"></div><div id="panel" class="panel"></div></main>
 <nav class="tabs" id="tabs" hidden></nav>
 <script nonce="${nonce}">
@@ -292,10 +289,19 @@ const avatars={},gameArts={}
 function gaKey(n,g){return n+'|'+g}
 function paintArt(node,url){node.style.backgroundImage='url("'+url+'")'}
 function paintGame(k){const url=gameArts[k];if(!url)return;for(const x of document.querySelectorAll('.thumb,.gbanner'))if(x.dataset.key===k)paintArt(x,url)}
+let pickGame=''
+function pickPicture(g){if(!g)return;pickGame=g;$('pick').value='';$('pick').click()}
+async function shrink(file){
+  if(!window.createImageBitmap)return file
+  const bmp=await createImageBitmap(file),sc=Math.min(1,960/Math.max(bmp.width,bmp.height))
+  const c=document.createElement('canvas');c.width=Math.max(1,Math.round(bmp.width*sc));c.height=Math.max(1,Math.round(bmp.height*sc))
+  c.getContext('2d').drawImage(bmp,0,0,c.width,c.height)
+  return await new Promise(r=>c.toBlob(r,'image/jpeg',.86))
+}
 async function ensureGameArt(d,g){
   const k=gaKey(d.name,g)
   if(gameArts[k]){paintGame(k);return}
-  if(gameArts[k]!==undefined||!(d.gameArt&&d.gameArt.includes(g)))return
+  if(gameArts[k]!==undefined||!((d.gameArt&&d.gameArt.includes(g))||(data&&data.art&&data.art.includes(g))))return
   gameArts[k]=''
   try{
     const r=await fetch('/api/gameart',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+token},body:JSON.stringify({device:d.name,game:g})})
@@ -350,16 +356,6 @@ function drawPanel(d,anim){
   hero.append(line)
   if(d.model||d.version)hero.append(el('div','model',[d.model,d.version?'version '+d.version:''].filter(Boolean).join('  ·  ')))
   const quick=el('div','glass row');quick.append(btn('Wake',()=>act(n,'wake'),!d.canWake),go('Lock','lock',undefined,'Lock '+n+'?'),go('Screen off','screen_off'))
-  const modes=el('div','glass modes');modes.append(el('h3','','MODE'))
-  const segs=el('div','segs')
-  for(const [k,label] of [['saver','Power saving'],['balanced','Balanced'],['gaming','Gaming']])segs.append(go(label,'mode_'+k,undefined,undefined,'seg'+(d.mode===k?' active':'')))
-  modes.append(segs)
-  if(d.cap){
-    const capline=el('div','capline')
-    capline.append(el('span','','GPU temperature cap '+d.cap.target+' °C'),go(d.cap.on?'On':'Off',d.cap.on?'cap_off':'cap_on',undefined,undefined,d.cap.on?'active':''))
-    modes.append(capline)
-    if(d.awake&&d.governor===false)modes.append(el('div','hint','The cap needs Setup-Governor.cmd, run once as administrator (see README-remote).'))
-  }
   const steam=el('div','steam');steam.append(el('h3','','STEAM'))
   const head=el('div','sh'),txt=el('div','txt')
   if(d.steam&&d.steam.user){
@@ -371,7 +367,7 @@ function drawPanel(d,anim){
   const games=d.games||data.games||[]
   if(!games.includes(picked[n]))picked[n]=games[0]||''
   const s1=el('div','row');s1.append(go('Steam','steam_open'),go('Big Picture','steam_bigpicture'),go('Show game','game_focus'))
-  const ban=el('div','gbanner');ban.dataset.key=gaKey(n,picked[n]);const gname=el('span','gname',picked[n]||'No games yet');ban.append(gname);paintGame(gaKey(n,picked[n]))
+  const ban=el('div','gbanner');ban.dataset.key=gaKey(n,picked[n]);const gname=el('span','gname',picked[n]||'No games yet');ban.append(el('span','gchip','Change picture'),gname);ban.addEventListener('click',()=>pickPicture(picked[n]));paintGame(gaKey(n,picked[n]))
   const s2=el('div','row');s2.append(dropdown(games,picked[n],v=>{picked[n]=v;ban.dataset.key=gaKey(n,v);gname.textContent=v;ban.style.backgroundImage='';ban.style.animation='none';void ban.offsetWidth;ban.style.animation='';paintGame(gaKey(n,v));ensureGameArt(d,v)},c||!games.length,o=>gaKey(n,o)),btn('Start game',()=>act(n,'steam_game',picked[n]),c||!games.length,undefined,'go'),go('Close game','close_game',undefined,'Close the running game on '+n+'?'))
   steam.append(ban,s1,s2)
   for(const g of games)ensureGameArt(d,g)
@@ -384,7 +380,7 @@ function drawPanel(d,anim){
     acc(n+'|code','Coding',coding),
     acc(n+'|upd','Update this app',[go('Git pull','git_pull'),go('Update & restart','update_remote',undefined,'Update '+n+' and restart its remote? Reload this page in about 20 seconds.')]),
     acc(n+'|sys','System',[go('Status','status'),go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?'),go('Restart','restart',undefined,'Restart '+n+'? It comes back by itself in about a minute.'),go('Sleep','sleep',undefined,'Sleep makes '+n+' unreachable from this phone until you press its power button. Sleep anyway?')]))
-  p.append(hero,quick,modes,steam,more)
+  p.append(hero,quick,steam,more)
   for(const g of games)paintGame(gaKey(n,g))
 }
 function render(anim){
@@ -444,6 +440,18 @@ function show(){
   if(!token){document.body.dataset.theme='plain';return}
   refresh();loadArt();timer=setInterval(refresh,10000)
 }
+$('pick').addEventListener('change',async()=>{
+  const f=$('pick').files&&$('pick').files[0];if(!f||!pickGame)return
+  const g=pickGame;say('Saving the picture…')
+  try{
+    const blob=await shrink(f)
+    const r=await fetch('/api/gameart/upload?game='+encodeURIComponent(g),{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'image/jpeg'},body:blob})
+    const j=await r.json().catch(()=>({}))
+    if(!r.ok)throw new Error(j.error||'Could not save the picture')
+    for(const k of Object.keys(gameArts))if(k.endsWith('|'+g))delete gameArts[k]
+    say(j.message||'Saved.');lastSig='';refresh()
+  }catch(err){say(err.message,true)}
+})
 $('login').addEventListener('submit',async e=>{
   e.preventDefault();$('lerr').textContent=''
   try{const j=await api('/login',{password:$('pw').value});token=j.token;try{sessionStorage.setItem('t',token)}catch(x){};$('pw').value='';show()}

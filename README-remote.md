@@ -6,7 +6,7 @@ A phone page with fixed buttons per device. The main row is always visible: Wake
 - **Open apps**: a drop-down and an Open button. Built in: Discord, Spotify, Epic Games, Claude and ASUS GlideX (the last two are found by name in the laptop's Start menu, so they must be installed on that laptop). Add your own, see below.
 - **Coding**: start or stop Ollama, start Jarvis (local), and your own named buttons.
 - **Update this app**: **Git pull** (just pulls the latest code into the Jarvis folder, fast-forward only) and **Update & restart** (pulls, runs `npm install` only if the dependency files changed, then restarts the remote by itself; reload the page after about 20 seconds). It never touches your other projects or Jarvis itself. The version (short commit) of each laptop is shown under its name, so you can see whether both are the same.
-- **System**: status (graphics card temperature, battery, uptime), game mode (stops Jarvis and unloads the local models, never your other projects), screen off, lock, restart (comes back by itself), sleep.
+- **System**: status (graphics card temperature, battery, uptime), game mode (stops Jarvis and unloads the local models, never your other projects), restart (comes back by itself), sleep.
 
 Restart, lock, sleep, close game, game mode and the coding buttons ask "are you sure?". Sleep warns that the phone cannot wake the laptop. There is no shutdown button on purpose: a shut-down laptop cannot be turned on from the phone. Close game ends every process that runs from a `steamapps\common` folder.
 
@@ -48,17 +48,8 @@ Put a picture at `C:\Users\<you>\.jarvis\art\rog.jpg` and/or `tuf.jpg` on the la
 ## After you start a game
 Starting a game from the page brings its window to the front 2 minutes later (it waits until the game has loaded). A new start replaces the timer. Change the wait with `JARVIS_GAME_FOCUS_SECONDS` (0 turns it off). The **Show game** button does it right now. It picks the biggest window of a program inside a `steamapps\common` folder.
 
-## Modes and the graphics temperature cap
-The MODE block on each laptop has three modes and a cap switch:
-- **Power saving**: Windows power mode "best power efficiency", cap off.
-- **Balanced**: Windows power mode "balanced", cap off.
-- **Gaming**: Windows power mode "best performance" (and, only if you turned the remote's own cap on, the graphics temperature cap).
-- **GPU temperature cap**: on its own, it keeps the card at or under the target by lowering its top clock when it is too hot and raising it again when it cools, never below 900 MHz. Set the target with `JARVIS_GPU_TARGET_C` (60 to 85, default 70).
-
-**The cap is off by default.** If you already made a profile in Armoury Crate (for example Manual with a 70 C limit), use that and leave this off, so two programs never fight over the card. To turn the remote's cap on, set `JARVIS_REMOTE_CAP=1` (a user environment variable, then restart the remote). It needs a small background program with administrator rights (the same permission the `nvidia-smi -lgc` step needs). Set it up once per laptop: right-click `Setup-Governor.cmd`, choose **Run as administrator**. It adds a scheduled task that starts at every sign-in. Without it the page says so and the cap does nothing. Undo: `Setup-Governor.cmd remove`. The page remembers the cap state in `~/.jarvis/gpu-governor.json`, so the cap stays on across restarts until you switch it off. It works on NVIDIA cards (`nvidia-smi`).
-The page shows the mode Jarvis last set; it does not notice changes made somewhere else.
-
-To get your Armoury Crate profile while gaming, use Armoury Crate's own scenario profiles: link PUBG and Call of Duty to your Manual profile there, and it switches by itself when the game starts (also when the remote starts it). ASUS **Silent / Performance / Turbo / Manual** (the fan key, Armoury Crate) cannot be switched from here: ASUS only exposes it through its own driver, and there is no supported command. If you keep Armoury Crate in Manual mode, the Windows mode above sits on top of it. Programs such as G-Helper replace Armoury Crate and can do more on the laptop itself.
+## Modes (not on the page)
+The Power saving, Balanced and Gaming section was removed from the page at the owner's request: performance profiles are set in Armoury Crate instead (link each game to a profile in its scenario profiles). The agent still understands the old `mode_*` and `cap_*` actions and the optional `Setup-Governor.cmd` cap exists, but nothing on the page uses them.
 
 ## Steam profile picture
 Each laptop's Steam panel shows the profile picture of the Steam user signed in on that laptop (Steam keeps a copy in its `config\avatarcache` folder). To use another picture, put it at `C:\Users\<you>\.jarvis\art\avatar.png` (or jpg or webp, up to 1 MB) on that laptop. Otherwise the panel shows the first letter of the name.
@@ -74,3 +65,6 @@ To see the exact names on a laptop, run: `Get-StartApps | Select-Object Name`. T
 
 ## Game pictures
 Each game in the Steam panel can have a picture: a banner above the drop-down and a small thumbnail in the list. On each laptop, put one image per game in `C:\Users\<you>\.jarvis\art\games\`, named after the game as it appears in `games.json`, for example `pubg.jpg` and `cod.jpg` (png, jpg or webp, up to 1.5 MB). Create the folder first: `New-Item -ItemType Directory -Force "$HOME\.jarvis\art\games"`. Games without a picture simply show their name. The pictures stay on the laptop and are sent to the phone only after the password. They are not part of this repository: game artwork belongs to its publisher, so keep it on your own machines.
+
+### Choosing a game picture from the phone
+Tap the banner of a game (it says "Change picture") and choose a picture from your phone. The page shrinks it to a sensible size and the remote saves it on the machine that serves the page (`~/.jarvis/art/games/`). It then shows for that game on both laptops and on every phone, because they all use the same remote. A picture saved on the hub wins over a file placed on a laptop. Only png, jpeg and webp pictures are accepted, checked by their content, up to 1.5 MB, only for games the remote already knows, and only after the password.
