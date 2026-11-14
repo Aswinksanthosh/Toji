@@ -214,6 +214,8 @@ export function createOllamaQuery({
                   messages: noThink([{ role: 'system', content: systemText }, ...history]),
                   ...(toolList.length ? { tools: toolList } : {}),
                   ...(withThink ? { think: false } : {}),
+                  keep_alive: process.env.JARVIS_OLLAMA_KEEP_ALIVE ?? '30m',
+                  options: { num_ctx: Number(process.env.JARVIS_OLLAMA_CTX) || 8192 },
                 }),
               })
             let res = await request(!think)
@@ -231,6 +233,12 @@ export function createOllamaQuery({
             for await (const part of ndjson(res.body)) {
               if (ac.signal.aborted) throw new Error('aborted')
               if (part.error) throw new Error(String(part.error))
+              if (part.done && part.eval_count !== undefined) {
+                const sec = (ns) => ((ns ?? 0) / 1e9).toFixed(1)
+                console.log(
+                  `[jarvis] ollama: read ${part.prompt_eval_count} tokens in ${sec(part.prompt_eval_duration)}s, wrote ${part.eval_count} in ${sec(part.eval_duration)}s, load ${sec(part.load_duration)}s, total ${sec(part.total_duration)}s`,
+                )
+              }
               const delta = filter.push(part.message?.content ?? '')
               if (delta) {
                 stepText += delta

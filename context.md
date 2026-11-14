@@ -41,7 +41,7 @@ Do one at a time, in this order. Mark `[x]` when done and note any result.
 - [ ] 2. Replace the leaked Gemini key (make a new one, put it in `.env.local`, delete the old one).
 - [ ] 3. Turn on two-step sign-in for the Tailscale account.
 - [ ] 4. Run `Create-Shortcuts.cmd` so the launchers are on the desktop.
-- [ ] 5. Local brain check: `Jarvis-Local.cmd`, ask 3 questions, watch the GPU temperature (cap is `JARVIS_GPU_PERCENT`, default 80).
+- [ ] 5. Local brain check (owner saw 20-30 s replies with qwen3:4b although `ollama run` gives 82 tokens/s on the GPU; added a per-reply timing log, keep-alive and a bigger prompt window in `ollama.mjs`; re-test and read the `[jarvis] ollama: read N tokens...` line): `Jarvis-Local.cmd`, ask 3 questions, watch the GPU temperature (cap is `JARVIS_GPU_PERCENT`, default 80).
 - [ ] 6. Phone over Tailscale: `Setup-Phone.cmd`, open the page on the phone, set `JARVIS_PHONE_HOST` to the Tailscale address only.
 - [ ] 7. Sleep test: plug in, sleep the laptop, see if the phone page still loads (decides whether Wake-on-LAN is needed).
 - [ ] 8. Screen vision and Gemini app reading (`look_at_screen`, `ask_gemini`).
