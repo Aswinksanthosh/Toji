@@ -21,7 +21,7 @@ The owner's fork of an MIT-licensed browser voice assistant ("Jarvis"). A React 
 - `.env.example` documents every setting. `README-*.md` are the setup guides.
 
 ## How to reply
-Keep chat replies short. Explain only when the owner asks questions.
+Keep chat replies short. Explain only when the owner asks questions. Wording: the owner calls the phone page (the no-AI buttons page served by `scripts/remote.mjs`) "the remote".
 
 ## Rules for editing
 1. Read this file and the comment at the top of any file before changing it.
