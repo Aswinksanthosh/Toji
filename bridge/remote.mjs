@@ -123,6 +123,7 @@ export const httpInfo = (token) => async (device) => {
     if (!res.ok) return null
     const body = await res.json()
     const names = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string').map((x) => x.slice(0, 60)).slice(0, 60) : [])
+    // eslint-disable-next-line no-control-regex -- control characters are removed on purpose
     const text = (v, n) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f]/g, '').slice(0, n) : '')
     const steam = body.steam && typeof body.steam === 'object' ? { user: text(body.steam.user, 40), playing: text(body.steam.playing, 40) } : null
     return { games: names(body.games), buttons: names(body.buttons), model: text(body.model, 40), steam }
