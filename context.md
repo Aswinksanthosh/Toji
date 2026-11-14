@@ -16,7 +16,7 @@ The owner's fork of an MIT-licensed browser voice assistant ("Jarvis"). A React 
 - `bridge/phone.mjs`, `telegram.mjs`, `session.mjs` — phone access (password page over Wi-Fi or Tailscale; Telegram bot).
 - `bridge/remote.mjs`, `scripts/remote.mjs`, `Remote.cmd` — no-AI phone buttons (wake, Steam, game, lock, sleep): an agent per laptop plus a hub page. See `README-remote.md`.
 - `src/config.ts` — page settings from `.env.local` (`VITE_*`). `src/App.tsx`, `src/ui/Hud.tsx` — the page.
-- `scripts/launch.ps1`, `start-limited.ps1`, `Jarvis*.cmd` — one-click Windows launchers and the graphics clock cap.
+- `scripts/launch.ps1`, `start-limited.ps1`, `Jarvis*.cmd` — one-click Windows launchers and the graphics clock cap. `Jarvis-Local-Full.cmd` is the local brain with no cap (`JARVIS_GPU_CAP=0`).
 - `.env.example` documents every setting. `README-*.md` are the setup guides.
 
 ## How to reply

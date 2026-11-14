@@ -1,4 +1,4 @@
-# Puts three shortcuts on your desktop: Jarvis Local (graphics capped at 80%),
+# Puts four shortcuts on your desktop: Jarvis Local (graphics capped at 80%), Jarvis Local Full (no cap),
 # Jarvis Gemini and Jarvis Claude. Safe to run again; it replaces them.
 
 $desktop = [Environment]::GetFolderPath('Desktop')   # follows OneDrive if the desktop is moved there
@@ -17,6 +17,7 @@ function New-JarvisLink($name, $file, $prefix) {
 
 Write-Host "Creating shortcuts on your desktop..."
 New-JarvisLink 'Jarvis Local'  'Jarvis-Local.cmd'  'set JARVIS_GPU_PERCENT=80&& '
+New-JarvisLink 'Jarvis Local Full' 'Jarvis-Local-Full.cmd' ''
 New-JarvisLink 'Jarvis Gemini' 'Jarvis-Gemini.cmd' ''
 New-JarvisLink 'Jarvis Claude' 'Jarvis-Claude.cmd' ''
 Write-Host "Done. Double-click one to start Jarvis with that brain."
