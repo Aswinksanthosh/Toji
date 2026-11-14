@@ -128,6 +128,27 @@ if (Test-Path $p) { Start-Process $p } else { Start-Process ollama -ArgumentList
 const BATTERY = String.raw`$b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($b) { "$($b.EstimatedChargeRemaining)|$($b.BatteryStatus)" }`
 
+const MODEL = String.raw`Get-CimInstance Win32_ComputerSystem | ForEach-Object { "$($_.Manufacturer)|$($_.Model)" }`
+
+/** "ROG Strix G614JV_G614JV" -> "ROG Strix G614JV". Only a name to show, never used for anything else. */
+export function cleanModel(text) {
+  const model = String(text ?? '').trim().split(/\r?\n/).at(-1)?.split('|').slice(1).join('|') ?? ''
+  return model.replace(/_.*$/, '').replace(/[^\w .+-]/g, '').trim().slice(0, 40)
+}
+
+/** The signed-in Steam user: the display name Steam keeps in config/loginusers.vdf. No passwords are touched. */
+export function parseSteamUser(vdf) {
+  const users = []
+  for (const m of String(vdf ?? '').matchAll(/"\d{17}"\s*\{([^}]*)\}/g)) {
+    const field = (k) => new RegExp(`"${k}"\\s+"([^"]*)"`, 'i').exec(m[1])?.[1]
+    users.push({ name: field('PersonaName') || field('AccountName') || '', recent: field('MostRecent') === '1' })
+  }
+  const pick = users.find((u) => u.recent && u.name) ?? users.find((u) => u.name)
+  return pick ? pick.name.slice(0, 40) : ''
+}
+
+const regValue = (out, name) => new RegExp(`${name}\\s+REG_\\w+\\s+(.+)`, 'i').exec(String(out))?.[1]?.trim() ?? ''
+
 const duration = (seconds) => {
   const m = Math.floor(seconds / 60)
   const d = Math.floor(m / 1440)
@@ -145,8 +166,10 @@ export function createRemoteActions({
   launch,
   desktop,
   games = () => [],
+  gameIds = () => ({}),
   gameUrl = () => null,
   buttonsFile,
+  readText = (file) => readFileSync(file, 'utf8'),
   run = defaultRun,
   spawnFn = spawn,
   exists = existsSync,
@@ -276,8 +299,42 @@ export function createRemoteActions({
     })
   }
 
+  let modelCache = null
+  const loadModel = () =>
+    (modelCache ??= (platform === 'win32' ? ps(MODEL).then(cleanModel, () => '') : Promise.resolve('')))
+
+  async function steamInfo() {
+    if (platform !== 'win32') return null
+    try {
+      const key = 'HKCU\\Software\\Valve\\Steam'
+      const path = regValue(await run('reg.exe', ['query', key, '/v', 'SteamPath']), 'SteamPath') || 'C:\\Program Files (x86)\\Steam'
+      const user = parseSteamUser(readText(join(path, 'config', 'loginusers.vdf')))
+      let playing = ''
+      try {
+        const id = Number.parseInt(regValue(await run('reg.exe', ['query', key, '/v', 'RunningAppID']), 'RunningAppID'), 16)
+        if (id > 0) playing = Object.entries(gameIds()).find(([, v]) => Number(v) === id)?.[0] ?? `app ${id}`
+      } catch {
+        // Not running a game, or the value is missing.
+      }
+      return { user, playing }
+    } catch {
+      return null
+    }
+  }
+
   return {
     run: perform,
-    info: () => ({ games: games(), buttons: Object.keys(knownButtons(buttonsFile)), apps: Object.keys(APPS) }),
+    async info() {
+      let timer
+      const model = await Promise.race([loadModel(), new Promise((r) => (timer = setTimeout(() => r(''), 1200)))])
+      clearTimeout(timer)
+      return {
+        games: games(),
+        buttons: Object.keys(knownButtons(buttonsFile)),
+        apps: Object.keys(APPS),
+        model,
+        steam: await steamInfo(),
+      }
+    },
   }
 }

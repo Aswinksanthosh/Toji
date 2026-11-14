@@ -43,6 +43,7 @@ if (token) {
     launch: (target) => runLaunch(target),
     desktop: (action) => runDesktop(action),
     games: () => Object.keys(knownGames()),
+    gameIds: () => knownGames(),
     gameUrl: (name) => steamGameUrl(name),
   })
   await startAgent({ token, port: agentPort, run: (action, { arg }) => actions.run(action, arg), info: actions.info })

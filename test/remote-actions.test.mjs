@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
-import { APPS, REMOTE_ACTIONS, createRemoteActions, knownButtons } from '../bridge/remote-actions.mjs'
+import { APPS, REMOTE_ACTIONS, cleanModel, createRemoteActions, knownButtons, parseSteamUser } from '../bridge/remote-actions.mjs'
 
 const ROOT = 'C:\\Users\\me\\Toji'
 
@@ -160,7 +160,65 @@ test('on other systems the Windows-only buttons say so instead of running anythi
   assert.deepEqual(calls, [])
 })
 
-test('info lists the games, the custom button names and the apps', () => {
-  const { actions } = setup()
-  assert.deepEqual(actions.info(), { games: ['pubg'], buttons: ['my tests'], apps: ['discord', 'spotify', 'epic'] })
+const VDF = `"users"
+{
+\t"76561198000000001"
+\t{
+\t\t"AccountName"\t\t"olduser"
+\t\t"PersonaName"\t\t"Old Name"
+\t\t"MostRecent"\t\t"0"
+\t}
+\t"76561198000000002"
+\t{
+\t\t"AccountName"\t\t"login2"
+\t\t"PersonaName"\t\t"Current Name"
+\t\t"MostRecent"\t\t"1"
+\t}
+}`
+
+test('the Steam user is the display name of the most recent login, and passwords are never read', () => {
+  assert.equal(parseSteamUser(VDF), 'Current Name')
+  assert.equal(parseSteamUser('"users" { "76561198000000009" { "AccountName" "only" } }'), 'only')
+  assert.equal(parseSteamUser(''), '')
+  assert.equal(parseSteamUser('garbage'), '')
+})
+
+test('the model name is shown tidy, and nothing odd gets through', () => {
+  assert.equal(cleanModel('ASUSTeK COMPUTER INC.|ROG Strix G614JV_G614JV\r\n'), 'ROG Strix G614JV')
+  assert.equal(cleanModel('ASUSTeK COMPUTER INC.|ASUS TUF Gaming A15 FA507NV_FA507NV'), 'ASUS TUF Gaming A15 FA507NV')
+  assert.equal(cleanModel('x|<script>alert(1)</script>'), 'scriptalert1script')
+  assert.equal(cleanModel(''), '')
+})
+
+test('info lists games, button names, apps, the model and the Steam user with the game that is running', async () => {
+  const run = async (file, args) => {
+    if (file === 'powershell.exe') return 'ASUSTeK COMPUTER INC.|ROG Strix G614JV_G614JV\r\n'
+    const joined = args.join(' ')
+    if (joined.includes('SteamPath')) return '    SteamPath    REG_SZ    c:/program files (x86)/steam\r\n'
+    if (joined.includes('RunningAppID')) return '    RunningAppID    REG_DWORD    0x8d220\r\n'
+    return ''
+  }
+  const read = []
+  const dir = mkdtempSync(join(tmpdir(), 'btn-'))
+  const buttonsFile = join(dir, 'b.json')
+  writeFileSync(buttonsFile, JSON.stringify({ 'My Tests': { command: 'npm test' } }))
+  const a = createRemoteActions({
+    root: ROOT, launch: async () => {}, desktop: async () => {}, games: () => ['pubg'], gameIds: () => ({ pubg: '578080' }),
+    buttonsFile, run, platform: 'win32', readText: (f) => (read.push(f), VDF),
+  })
+  const info = await a.info()
+  assert.deepEqual(info, {
+    games: ['pubg'], buttons: ['my tests'], apps: ['discord', 'spotify', 'epic'],
+    model: 'ROG Strix G614JV', steam: { user: 'Current Name', playing: 'pubg' },
+  })
+  assert.ok(read[0].replace(/\\/g, '/').endsWith('steam/config/loginusers.vdf'))
+})
+
+test('info works with no Steam and no model (other systems, or a slow answer)', async () => {
+  const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux' })
+  assert.deepEqual(await a.info(), { games: [], buttons: [], apps: ['discord', 'spotify', 'epic'], model: '', steam: null })
+  const b = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, run: async () => { throw new Error('x') }, platform: 'win32' })
+  const info = await b.info()
+  assert.equal(info.model, '')
+  assert.equal(info.steam, null)
 })

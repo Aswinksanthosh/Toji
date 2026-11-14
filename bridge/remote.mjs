@@ -123,7 +123,9 @@ export const httpInfo = (token) => async (device) => {
     if (!res.ok) return null
     const body = await res.json()
     const names = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string').map((x) => x.slice(0, 60)).slice(0, 60) : [])
-    return { games: names(body.games), buttons: names(body.buttons) }
+    const text = (v, n) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f]/g, '').slice(0, n) : '')
+    const steam = body.steam && typeof body.steam === 'object' ? { user: text(body.steam.user, 40), playing: text(body.steam.playing, 40) } : null
+    return { games: names(body.games), buttons: names(body.buttons), model: text(body.model, 40), steam }
   } catch {
     return null
   }
@@ -139,26 +141,44 @@ function page(nonce) {
 <title>Remote</title>
 <style nonce="${nonce}">
 *{box-sizing:border-box}
-body{margin:0;min-height:100dvh;background:#020a12;color:#bfefff;font:16px/1.4 system-ui,sans-serif}
+:root{--bg:#03070c;--card:#0a141c;--line:#14303d;--accent:#4fd0e6;--btn:#0b3446;--text:#c6f1ff}
+body{margin:0;min-height:100dvh;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,sans-serif}
 header{padding:14px 16px;letter-spacing:.3em;font-size:.8rem;color:#4fd0e6;border-bottom:1px solid #0c2a38}
-main{padding:14px;display:flex;flex-direction:column;gap:14px;max-width:560px;margin:auto}
-.card{border:1px solid #0c2a38;background:#07161f;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px}
-.top{display:flex;align-items:center;gap:8px;font-weight:600}
+main{padding:14px;display:flex;flex-direction:column;gap:16px;max-width:560px;margin:auto}
+.card{--accent:#4fd0e6;border:1px solid var(--line);border-left:4px solid var(--accent);background:linear-gradient(160deg,var(--card),#050a0f);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.card.rog{--accent:#ff2a3d;--card:#16090c;--line:#4a1019;--btn:#3a0d14;border-radius:0;clip-path:polygon(0 0,calc(100% - 22px) 0,100% 22px,100% 100%,22px 100%,0 calc(100% - 22px))}
+.card.tuf{--accent:#ffb000;--card:#14100a;--line:#4d3a0b;--btn:#33260a}
+.card.tuf::before{content:'';display:block;height:7px;margin:-12px -12px 0;background:repeating-linear-gradient(135deg,#ffb000 0 12px,#17130a 12px 24px)}
+.top{display:flex;align-items:center;gap:8px;font-weight:700;font-size:1.05rem}
+.badge{font-size:.7rem;letter-spacing:.2em;font-weight:800;padding:2px 8px;border:1px solid var(--accent);color:var(--accent)}
+.state{margin-left:auto;font-weight:400;font-size:.85rem;color:#7fa1ad}
+.model{margin-top:-6px;font-size:.8rem;color:#7fa1ad}
 .dot{width:10px;height:10px;border-radius:50%;background:#3a4b55}
-.on .dot{background:#38d27a}
+.on .dot{background:#38d27a;box-shadow:0 0 8px #38d27a}
 .row{display:flex;gap:8px;flex-wrap:wrap}
-button,select,input{font:inherit;color:inherit;border:1px solid #1d5a70;background:#0b3446;border-radius:10px;padding:12px 14px}
-select{background:#041420;flex:1;min-width:0}
+button,select,input{font:inherit;color:inherit;border:1px solid var(--line);background:var(--btn);border-radius:8px;padding:12px 14px}
+.rog button,.rog select{border-radius:0}
+button:active{background:var(--accent);color:#000}
+select{flex:1 1 100%;min-width:0}
 button:disabled{opacity:.4}
-.msg{min-height:1.4em;color:#9be3a8;font-size:.9rem}
+.steam{background:linear-gradient(180deg,#1b2838,#141a22);border:1px solid #2a475e;border-radius:6px;padding:10px;display:flex;flex-direction:column;gap:8px;color:#c7d5e0}
+.rog .steam{border-radius:0}
+.steam h3{margin:0;font-size:.72rem;letter-spacing:.25em;color:#66c0f4}
+.who{font-weight:600;color:#fff}
+.now{color:#a4d007;font-size:.85rem}
+.unk{color:#8a9aa6;font-size:.85rem}
+.steam button,.steam select{background:#2a475e;border-color:#3d6c8d;color:#c7d5e0}
+.steam select{background:#101822}
+.steam button.go{background:linear-gradient(#75b022,#588a1b);border-color:#75b022;color:#fff}
+.steam button:active{background:#66c0f4;color:#000}
+details.sec{border-top:1px solid var(--line);padding-top:6px}
+summary{cursor:pointer;color:var(--accent);padding:6px 0;list-style:none;letter-spacing:.08em}
+summary::-webkit-details-marker{display:none}
+summary::before{content:'+ '}
+details[open]>summary::before{content:'- '}
+.msg{position:sticky;top:0;background:var(--bg);padding:6px 0;min-height:1.9em;color:#9be3a8;font-size:.9rem;z-index:1}
 .err{color:#ffb4a8}
 #login{margin:20vh auto 0;width:min(360px,90vw);display:flex;flex-direction:column;gap:12px}
-details.sec{border-top:1px solid #0c2a38;padding-top:6px}
-summary{cursor:pointer;color:#4fd0e6;padding:6px 0;list-style:none}
-summary::-webkit-details-marker{display:none}
-summary::before{content:'+ ';color:#4fd0e6}
-details[open]>summary::before{content:'- '}
-.msg{position:sticky;top:0;background:#020a12;padding:6px 0;z-index:1}
 [hidden]{display:none!important}
 </style></head><body>
 <header>REMOTE</header>
@@ -184,40 +204,55 @@ async function act(device,action,arg){
   catch(err){if(err.status===401){token='';show()}say(err.message,true)}
   setTimeout(refresh,4000)
 }
-function btn(label,fn,disabled,sure){const b=el('button','',label);b.disabled=!!disabled;b.addEventListener('click',()=>{if(sure&&!confirm(sure))return;fn()});return b}
-const opened=new Set(),picked={}
+function btn(label,fn,disabled,sure,cls){const b=el('button',cls||'',label);b.disabled=!!disabled;b.addEventListener('click',()=>{if(sure&&!confirm(sure))return;fn()});return b}
+const opened=new Set(),picked={},seen={}
 function section(key,title,kids){
   const d=el('details','sec');d.open=opened.has(key)
   d.addEventListener('toggle',()=>{if(d.open)opened.add(key);else opened.delete(key)})
   d.append(el('summary','',title));const r=el('div','row');r.append(...kids);d.append(r);return d
 }
+function themeOf(d){
+  if(d.theme==='rog'||d.theme==='tuf')return d.theme
+  const m=d.model||''
+  return /ROG/i.test(m)?'rog':/TUF/i.test(m)?'tuf':''
+}
 function draw(data){
   const list=$('list');list.textContent=''
   for(const d of data.devices){
-    const n=d.name,c=!d.canControl
-    const go=(label,action,arg,sure)=>btn(label,()=>act(n,action,arg),c,sure)
-    const card=el('div','card'+(d.awake?' on':''))
-    const top=el('div','top');top.append(el('span','dot'),el('span','',n),el('span','',d.awake?'awake':(d.canControl?'asleep or off':'')))
-    const r1=el('div','row');r1.append(btn('Wake',()=>act(n,'wake'),!d.canWake),go('Steam','steam_open'),go('Big Picture','steam_bigpicture'))
+    if(d.model)seen[d.name]=d.model;else if(seen[d.name])d.model=seen[d.name]
+    const n=d.name,c=!d.canControl,theme=themeOf(d)
+    const go=(label,action,arg,sure,cls)=>btn(label,()=>act(n,action,arg),c,sure,cls)
+    const card=el('div','card '+theme+(d.awake?' on':''))
+    const top=el('div','top');top.append(el('span','dot'),el('span','',n))
+    if(theme)top.append(el('span','badge',theme.toUpperCase()))
+    top.append(el('span','state',d.awake?'awake':(d.canControl?'asleep or off':'')))
+    card.append(top)
+    if(d.model)card.append(el('div','model',d.model))
+    const quick=el('div','row');quick.append(btn('Wake',()=>act(n,'wake'),!d.canWake),go('Lock','lock',undefined,'Lock '+n+'?'),go('Screen off','screen_off'))
+    card.append(quick)
+    const steam=el('div','steam');steam.append(el('h3','','STEAM'))
+    if(d.steam&&d.steam.user)steam.append(el('div','who','Signed in as '+d.steam.user))
+    else steam.append(el('div','unk',d.awake?'No Steam user found':'Laptop not answering'))
+    if(d.steam&&d.steam.playing)steam.append(el('div','now','Now playing: '+d.steam.playing))
+    const s1=el('div','row');s1.append(go('Steam','steam_open'),go('Big Picture','steam_bigpicture'))
     const games=d.games||data.games||[]
-    const r2=el('div','row');const sel=el('select')
+    const s2=el('div','row');const sel=el('select')
     for(const g of games){const o=el('option','',g);o.value=g;sel.append(o)}
     if(picked[n]&&games.includes(picked[n]))sel.value=picked[n]
     sel.addEventListener('change',()=>{picked[n]=sel.value})
-    r2.append(sel,btn('Start game',()=>act(n,'steam_game',sel.value),c||!games.length),go('Close game','close_game',undefined,'Close the running game on '+n+'?'))
-    const media=section(n+'|media','Media',[go('Prev','media_prev'),go('Play / pause','media_playpause'),go('Next','media_next'),go('Vol -','volume_down'),go('Mute','mute'),go('Vol +','volume_up')])
-    const apps=section(n+'|apps','Apps',[go('Discord','app','discord'),go('Spotify','app','spotify'),go('Epic','app','epic')])
-    const coding=[go('Start Ollama','ollama_start'),go('Stop Ollama','ollama_stop','', 'Stop Ollama on '+n+'?'),go('Start Jarvis','jarvis_start'),go('Update Jarvis','git_pull')]
+    s2.append(sel,btn('Start game',()=>act(n,'steam_game',sel.value),c||!games.length,undefined,'go'),go('Close game','close_game',undefined,'Close the running game on '+n+'?'))
+    steam.append(s1,s2);card.append(steam)
+    card.append(
+      section(n+'|media','Media',[go('Prev','media_prev'),go('Play / pause','media_playpause'),go('Next','media_next'),go('Vol -','volume_down'),go('Mute','mute'),go('Vol +','volume_up')]),
+      section(n+'|apps','Apps',[go('Discord','app','discord'),go('Spotify','app','spotify'),go('Epic','app','epic')]))
+    const coding=[go('Start Ollama','ollama_start'),go('Stop Ollama','ollama_stop','','Stop Ollama on '+n+'?'),go('Start Jarvis','jarvis_start'),go('Update Jarvis','git_pull')]
     for(const b of d.buttons||[])coding.push(go(b,'button',b,'Run "'+b+'" on '+n+'?'))
-    const code=section(n+'|code','Coding',coding)
-    const sys=section(n+'|sys','System',[
+    card.append(section(n+'|code','Coding',coding),section(n+'|sys','System',[
       go('Status','status'),
       go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?'),
-      go('Screen off','screen_off'),
-      go('Lock','lock',undefined,'Lock '+n+'?'),
       go('Restart','restart',undefined,'Restart '+n+'? It comes back by itself in about a minute.'),
-      go('Sleep','sleep',undefined,'Sleep makes '+n+' unreachable from this phone until you press its power button. Sleep anyway?')])
-    card.append(top,r1,r2,media,apps,code,sys);list.append(card)
+      go('Sleep','sleep',undefined,'Sleep makes '+n+' unreachable from this phone until you press its power button. Sleep anyway?')]))
+    list.append(card)
   }
 }
 async function refresh(){
@@ -275,11 +310,12 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
         if (path === '/api/devices') {
           const list = await Promise.all(
             Object.entries(devices).map(async ([name, d]) => {
-              const base = { name, canWake: Boolean(d.mac), canControl: Boolean(d.agent) }
+              const base = { name, canWake: Boolean(d.mac), canControl: Boolean(d.agent), ...(d.theme ? { theme: d.theme } : {}) }
               if (!d.agent) return { ...base, awake: null }
               if (!info) return { ...base, awake: await ping(d) }
               const got = await info(d)
-              return got ? { ...base, awake: true, games: got.games ?? [], buttons: got.buttons ?? [] } : { ...base, awake: false }
+              if (!got) return { ...base, awake: false }
+              return { ...base, awake: true, games: got.games ?? [], buttons: got.buttons ?? [], ...(got.model ? { model: got.model } : {}), ...(got.steam ? { steam: got.steam } : {}) }
             }),
           )
           return json(res, 200, { devices: list, games: getGames() })

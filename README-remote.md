@@ -33,3 +33,7 @@ Then run `Autostart-Remote.cmd` once: the buttons start hidden at every sign-in 
 Create `C:\Users\<you>\.jarvis\buttons.json` on a laptop. The page shows one button per entry (under Coding), and pressing it runs that command there:
 `{ "my tests": { "command": "npm test", "cwd": "C:\\Users\\you\\project" }, "open code": { "command": "code ." , "cwd": "C:\\Users\\you\\project" } }`
 You write this file yourself. The phone can only press a button by its name; it can never send a command. Jarvis's own file tools are not allowed to touch `~/.jarvis`, so the AI cannot add buttons either. Keep entries short (300 characters) and in one line.
+
+## Look of the page
+Each laptop is a card. The agent reports the laptop's model name, and the card follows it: a model with "ROG" in its name gets a red ROG look with the badge ROG, one with "TUF" gets an orange TUF look with the badge TUF, anything else the plain blue look. To force a look, add `"theme": "rog"` or `"theme": "tuf"` to that laptop's entry in `devices.json`. Only colours and the words ROG and TUF are used, never the logos.
+Inside each card, the Steam panel (Steam colours) shows who is signed in to Steam on that laptop (the display name from Steam's own `loginusers.vdf`, no passwords are read) and which game is running, with the Steam, Big Picture, Start game and Close game buttons. Each laptop lists its own games from its own `games.json`.

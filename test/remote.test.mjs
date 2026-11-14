@@ -175,3 +175,21 @@ test('the hub passes the name as an argument and trims it', async (t) => {
   assert.equal(h.log.forward[0][2].length, 60)
   assert.deepEqual(h.log.forward[1], ['http://100.1.1.1:8790', 'app', 'discord'])
 })
+
+test('the hub passes the laptop model, the Steam user and a theme override to the page', async (t) => {
+  const s = await startHub({
+    password: PASSWORD, port: 0, host: '127.0.0.1',
+    getDevices: () => ({ a: { mac: '', agent: 'http://100.1.1.1:8790', theme: 'tuf' }, b: { mac: '', agent: 'http://100.1.1.2:8790' } }),
+    getGames: () => [], wake: async () => {}, forward: async () => 'ok', ping: async () => true,
+    info: async (d) => ({ games: [], buttons: [], model: d.agent.endsWith('1:8790') ? '' : 'ROG Strix', steam: d.agent.endsWith('1:8790') ? null : { user: 'Someone', playing: '' } }),
+  })
+  t.after(() => s.close())
+  const url = `http://127.0.0.1:${s.port}`
+  const login = await (await fetch(url + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }) })).json()
+  const body = await (await fetch(url + '/api/devices', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${login.token}` }, body: '{}' })).json()
+  const byName = Object.fromEntries(body.devices.map((d) => [d.name, d]))
+  assert.equal(byName.a.theme, 'tuf')
+  assert.equal(byName.a.model, undefined)
+  assert.equal(byName.b.model, 'ROG Strix')
+  assert.deepEqual(byName.b.steam, { user: 'Someone', playing: '' })
+})

@@ -60,3 +60,15 @@ test('a device can have an agent address, an agent address alone is enough, and 
   assert.equal(d.c.agent, '')
   assert.equal(d.d, undefined)
 })
+
+test('a device can carry an optional theme, only rog or tuf', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const f = join(mkdtempSync(join(tmpdir(), 'dev-')), 'devices.json')
+  writeFileSync(f, JSON.stringify({ a: { agent: 'http://100.1.1.1:8790', theme: 'TUF' }, b: { agent: 'http://100.1.1.2:8790', theme: 'neon' }, c: { agent: 'http://100.1.1.3:8790' } }))
+  const d = knownDevices(f)
+  assert.equal(d.a.theme, 'tuf')
+  assert.equal('theme' in d.b, false)
+  assert.equal('theme' in d.c, false)
+})

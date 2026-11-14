@@ -44,10 +44,13 @@ export function knownDevices(file = DEVICES_FILE) {
       const goodAgent = /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?$/.test(agent) ? agent : ''
       const goodMac = Boolean(parseMac(d?.mac))
       if (!goodMac && !goodAgent) continue
+      const theme = ['rog', 'tuf'].includes(String(d?.theme ?? '').toLowerCase()) ? String(d.theme).toLowerCase() : ''
       out[name.toLowerCase().trim()] = {
         mac: goodMac ? String(d.mac).trim() : '',
         broadcast: isIPv4(String(d?.broadcast ?? '')) ? d.broadcast : '255.255.255.255',
         agent: goodAgent,
+        // Optional look of the card ("rog" or "tuf"); otherwise it follows the laptop's model name.
+        ...(theme ? { theme } : {}),
       }
     }
     return out
