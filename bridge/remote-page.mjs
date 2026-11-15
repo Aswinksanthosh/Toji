@@ -601,11 +601,19 @@ async function loadArt(){
 }
 function showLogin(){if(!$('login')){$('loginSlot').append($('loginTpl').content.cloneNode(true));const u=$('pw');if(u)setTimeout(()=>{try{u.focus()}catch(e){}},60)}}
 function hideLogin(){const f=$('login');if(f)f.remove()}
+// Polling is gentle: nothing while the page is hidden (phone screen off or another app), and every 30 s instead of 10 s while a game is running.
+function schedule(){
+  clearTimeout(timer)
+  if(!token)return
+  const playing=data&&data.devices.some(d=>d.steam&&d.steam.playing)
+  timer=setTimeout(async()=>{if(!document.hidden)await refresh();schedule()},playing?30000:10000)
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&token)refresh()})
 function show(){
   if(token)hideLogin();else showLogin()
-  $('app').hidden=!token;$('tabs').hidden=!token;clearInterval(timer)
+  $('app').hidden=!token;$('tabs').hidden=!token;clearTimeout(timer)
   if(!token){document.body.dataset.theme='plain';return}
-  refresh();loadArt();timer=setInterval(refresh,10000)
+  refresh();loadArt();schedule()
 }
 let askFor='',askFn=null
 // The same box serves two jobs: asking for the password (turn off), or a plain yes / cancel question.

@@ -610,3 +610,11 @@ test('the sign-in form is inserted when needed and removed after a successful si
   // the typed password is not wiped before the form goes away
   assert.doesNotMatch(html.slice(html.indexOf("$('loginSlot').addEventListener")), /\$\('pw'\)\.value=''/)
 })
+
+test('the page asks the laptop for its status gently: not at all while hidden, and less often while a game is running', async (t) => {
+  const h = await hub()
+  t.after(() => h.close())
+  const html = await (await fetch(h.url + '/')).text()
+  for (const part of ['function schedule(', 'if(!document.hidden)await refresh()', 'playing?30000:10000', "document.addEventListener('visibilitychange'", 'clearTimeout(timer)']) assert.ok(html.includes(part), part)
+  assert.doesNotMatch(html, /setInterval/)
+})
