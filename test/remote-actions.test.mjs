@@ -41,7 +41,7 @@ const decode = (args) => Buffer.from(args.at(-1), 'base64').toString('utf16le')
 
 test('every listed action is handled, and an unknown one is refused', async () => {
   const { actions } = setup()
-  for (const action of REMOTE_ACTIONS.filter((a) => a !== 'steam_switch' && !a.startsWith('bt_'))) {
+  for (const action of REMOTE_ACTIONS.filter((a) => a !== 'steam_switch' && !a.startsWith('bt_') && a !== 'audio_set')) {
     const arg = action === 'steam_game' ? 'pubg' : action === 'app' ? 'discord' : action === 'button' ? 'my tests' : undefined
     await assert.doesNotReject(actions.run(action, arg), action)
   }
@@ -246,7 +246,7 @@ test('info lists games, button names, apps, the model and the Steam user with th
   })
   const info = await a.info()
   assert.deepEqual(info, {
-    games: ['pubg'], gameArt: [], version: '', buttons: ['my tests'], headphones: [], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'],
+    games: ['pubg'], gameArt: [], version: '', buttons: ['my tests'], headphones: [], outputs: ['ASUSTeK COMPUTER INC.|ROG Strix G614JV_G614JV'], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'],
     model: 'ROG Strix G614JV', steam: { user: 'Current Name', playing: 'pubg', avatar: false, id: '76561198000000002', accounts: [] },
     mode: '', cap: { on: false, target: 70 }, governor: true,
   })
@@ -255,7 +255,7 @@ test('info lists games, button names, apps, the model and the Steam user with th
 
 test('info works with no Steam and no model (other systems, or a slow answer)', async () => {
   const a = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, platform: 'linux', capEnabled: true, stateFile: 'none.json', readText: () => { throw new Error('none') } })
-  assert.deepEqual(await a.info(), { games: [], gameArt: [], version: '', buttons: [], headphones: [], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'], model: '', steam: null, mode: '', cap: { on: false, target: 70 }, governor: false })
+  assert.deepEqual(await a.info(), { games: [], gameArt: [], version: '', buttons: [], headphones: [], outputs: [], apps: ['discord', 'spotify', 'epic', 'claude', 'glidex'], model: '', steam: null, mode: '', cap: { on: false, target: 70 }, governor: false })
   const b = createRemoteActions({ root: ROOT, launch: async () => {}, desktop: async () => {}, run: async () => { throw new Error('x') }, platform: 'win32' })
   const info = await b.info()
   assert.equal(info.model, '')
@@ -832,4 +832,22 @@ test('headphones: only a paired device, by exact name, can be connected or disco
 test('headphones: Windows failures are explained', async () => {
   const { actions } = setup({ extra: { run: async (f, args) => (decode(args).includes('FriendlyName }') ? 'Buds\n' : 'fail:1168\n') } })
   await assert.rejects(actions.run('bt_connect', 'Buds'), /in range and awake/)
+})
+
+test('audio output: only an active playback device, by exact name', async () => {
+  const scripts = []
+  const { actions } = setup({
+    extra: {
+      run: async (file, args) => {
+        const s = decode(args)
+        scripts.push(s)
+        return s.includes('ForEach-Object { $_.FriendlyName }') ? 'Speakers (Realtek)\nBuds Stereo\n' : 'ok\n'
+      },
+    },
+  })
+  assert.deepEqual((await actions.info()).outputs, ['Speakers (Realtek)', 'Buds Stereo'])
+  assert.match(await actions.run('audio_set', 'buds stereo'), /Sound now plays on Buds Stereo/)
+  assert.match(scripts.at(-1), /\$name = 'Buds Stereo'/)
+  assert.match(scripts.at(-1), /SetDefaultEndpoint/)
+  for (const bad of ["x'; calc; '", 'Unknown', '', undefined]) await assert.rejects(actions.run('audio_set', bad), /not available/)
 })

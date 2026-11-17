@@ -180,7 +180,7 @@ export const httpInfo = (token) => async (device) => {
       : null
     const mode = ['saver', 'balanced', 'gaming'].includes(body.mode) ? body.mode : ''
     const cap = body.cap && typeof body.cap === 'object' ? { on: body.cap.on === true, target: Math.min(Math.max(Number(body.cap.target) || 70, 60), 85) } : null
-    return { games: names(body.games), buttons: names(body.buttons), apps: names(body.apps), headphones: names(body.headphones), gameArt: names(body.gameArt), version: typeof body.version === 'string' && /^[0-9a-f]{4,12}$/.test(body.version) ? body.version : '', stale: body.stale === true, model: text(body.model, 40), steam, mode, cap, governor: body.governor === true }
+    return { games: names(body.games), buttons: names(body.buttons), apps: names(body.apps), headphones: names(body.headphones), outputs: names(body.outputs), gameArt: names(body.gameArt), version: typeof body.version === 'string' && /^[0-9a-f]{4,12}$/.test(body.version) ? body.version : '', stale: body.stale === true, model: text(body.model, 40), steam, mode, cap, governor: body.governor === true }
   } catch {
     return null
   }
@@ -329,6 +329,7 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
                 buttons: got.buttons ?? [],
                 ...(got.apps?.length ? { apps: got.apps } : {}),
                 ...(got.headphones?.length ? { headphones: got.headphones } : {}),
+                ...(got.outputs?.length ? { outputs: got.outputs } : {}),
                 ...(got.gameArt?.length ? { gameArt: got.gameArt } : {}),
                 ...(got.version ? { version: got.version } : {}),
                 ...(got.stale ? { stale: true } : {}),

@@ -83,6 +83,7 @@ export const REMOTE_ACTIONS = [
   'app',
   'bt_connect',
   'bt_disconnect',
+  'audio_set',
   'button',
   'mode_saver',
   'mode_balanced',
@@ -212,6 +213,44 @@ public static class RspBt {
 }
 '@
 [RspBt]::Run([Convert]::ToUInt64($hex, 16), $connect)`
+
+// Audio output (the "default speaker"). Active playback devices are listed from Windows; switching sets the default
+// for ONE device found by its exact name, for apps, media and calls.
+const AUDIO_LIST = String.raw`Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match '\{0\.0\.0\.00000000\}' -and $_.FriendlyName } | ForEach-Object { $_.FriendlyName } | Sort-Object -Unique`
+
+const audioScript = (name) => String.raw`$name = ${psQuote(name)}
+$dev = Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match '\{0\.0\.0\.00000000\}' -and $_.FriendlyName -eq $name } | Select-Object -First 1
+if (-not $dev) { 'notfound'; exit }
+$id = $dev.InstanceId -replace '^SWD\\MMDEVAPI\\', ''
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+[Guid("f8679f50-850a-41cf-9c72-430f290290c8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IRspPolicyConfig {
+  [PreserveSig] int GetMixFormat([MarshalAs(UnmanagedType.LPWStr)] string n, IntPtr f);
+  [PreserveSig] int GetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string n, int d, IntPtr f);
+  [PreserveSig] int ResetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string n);
+  [PreserveSig] int SetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string n, IntPtr a, IntPtr b);
+  [PreserveSig] int GetProcessingPeriod([MarshalAs(UnmanagedType.LPWStr)] string n, int d, IntPtr a, IntPtr b);
+  [PreserveSig] int SetProcessingPeriod([MarshalAs(UnmanagedType.LPWStr)] string n, IntPtr a);
+  [PreserveSig] int GetShareMode([MarshalAs(UnmanagedType.LPWStr)] string n, IntPtr a);
+  [PreserveSig] int SetShareMode([MarshalAs(UnmanagedType.LPWStr)] string n, IntPtr a);
+  [PreserveSig] int GetPropertyValue([MarshalAs(UnmanagedType.LPWStr)] string n, IntPtr k, IntPtr v);
+  [PreserveSig] int SetPropertyValue([MarshalAs(UnmanagedType.LPWStr)] string n, IntPtr k, IntPtr v);
+  [PreserveSig] int SetDefaultEndpoint([MarshalAs(UnmanagedType.LPWStr)] string n, int role);
+  [PreserveSig] int SetEndpointVisibility([MarshalAs(UnmanagedType.LPWStr)] string n, int v);
+}
+[ComImport, Guid("870af99c-171d-4f9e-af0d-e63df40c2bc9")] class RspPolicyConfigClient { }
+public static class RspAudio {
+  public static string Set(string id) {
+    IRspPolicyConfig p = (IRspPolicyConfig)new RspPolicyConfigClient();
+    int last = 0;
+    for (int role = 0; role < 3; role++) { last = p.SetDefaultEndpoint(id, role); if (last != 0) return "fail:" + last; }
+    return "ok";
+  }
+}
+'@
+[RspAudio]::Set($id)`
 
 const BATTERY = String.raw`$b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($b) { "$($b.EstimatedChargeRemaining)|$($b.BatteryStatus)" }`
@@ -481,6 +520,14 @@ export function createRemoteActions({
         if (out === 'ok') return connect ? `Connecting ${name}. Open its case or take it out if it does not connect in 10 seconds. It must not be busy with another device.` : `${name} disconnected from this laptop. It is free for your phone or another device now.`
         throw new Error(out === 'notfound' ? 'Windows no longer lists that device.' : 'Windows refused (are the earphones in range and awake?).')
       }
+      case 'audio_set': {
+        const name = (await listOutputs()).find((n) => n.toLowerCase() === String(arg ?? '').toLowerCase().trim())
+        if (!name) throw new Error('That audio output is not available on this laptop right now.')
+        const out = (await ps(audioScript(name), { timeout: 30_000 })).trim().split(/\r?\n/).at(-1)
+        if (out !== 'ok') throw new Error(out === 'notfound' ? 'Windows no longer lists that output.' : 'Windows refused to switch the audio output.')
+        outCache.at = 0
+        return `Sound now plays on ${name}.`
+      }
       case 'button':
         return runButton(arg)
       default:
@@ -692,10 +739,21 @@ export function createRemoteActions({
     })
   }
 
+  const outCache = { at: 0, value: [] }
+  async function listOutputs() {
+    if (platform !== 'win32') return []
+    if (Date.now() - outCache.at < 15_000) return outCache.value
+    // eslint-disable-next-line no-control-regex -- control characters are removed on purpose
+    outCache.value = await ps(AUDIO_LIST, { timeout: 15_000 }).then((o) => o.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && l.length <= 80 && !/[\u0000-\u001f]/.test(l)).slice(0, 20), () => [])
+    outCache.at = Date.now()
+    return outCache.value
+  }
+
   let btCache = { at: 0, value: [] }
   async function listHeadphones() {
     if (platform !== 'win32') return []
     if (Date.now() - btCache.at < 60_000) return btCache.value
+    // eslint-disable-next-line no-control-regex -- control characters are removed on purpose
     const value = await ps(BT_LIST, { timeout: 15_000 }).then((o) => o.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && l.length <= 40 && !/[\u0000-\u001f]/.test(l)).slice(0, 20), () => [])
     btCache = { at: Date.now(), value }
     return value
@@ -796,6 +854,7 @@ export function createRemoteActions({
         ...(await versionInfo()),
         gameArt: games().filter((g) => gameArtFile(g)),
         headphones: await listHeadphones(),
+        outputs: await listOutputs(),
         apps: [...Object.keys(APPS), ...Object.keys(START_APPS), ...Object.keys(knownRemoteApps(appsFile))],
         model,
         steam: steam ? { user: steam.user, playing: steam.playing, avatar: Boolean(avatarFile(steam)), id: steam.id, accounts: steam.accounts.map(({ id, name }) => ({ id, name })) } : null,
