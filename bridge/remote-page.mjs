@@ -554,6 +554,7 @@ function drawPanel(d,anim){
   for(const b of d.buttons||[])coding.push(go(b,'button',b,'Run "'+b+'" on '+n+'?'))
   const more=el('div','glass')
   more.append(
+    acc(n+'|mode','Power mode',[go('Efficiency','mode_saver',undefined,undefined,d.mode==='saver'?'active':''),go('Balanced','mode_balanced',undefined,undefined,d.mode==='balanced'?'active':''),go('Performance','mode_gaming',undefined,undefined,d.mode==='gaming'?'active':'')]),
     acc(n+'|media','Media',[go('Prev','media_prev'),go('Play / pause','media_playpause'),go('Next','media_next'),go('Vol -','volume_down'),go('Mute','mute'),go('Vol +','volume_up')]),
     acc(n+'|apps','Open apps',[appMenu(d)]),
     acc(n+'|bt','Headphones',[btMenu(d)]),
