@@ -851,3 +851,12 @@ test('audio output: only an active playback device, by exact name', async () => 
   assert.match(scripts.at(-1), /SetDefaultEndpoint/)
   for (const bad of ["x'; calc; '", 'Unknown', '', undefined]) await assert.rejects(actions.run('audio_set', bad), /not available/)
 })
+
+test('restart remote always starts the restart helper, even when nothing is new', async () => {
+  const spawned = []
+  const { actions } = setup({ extra: { spawnFn: (cmd, args) => (spawned.push([cmd, args]), { once() {}, unref() {} }) } })
+  assert.match(await actions.run('restart_remote'), /Restarting the remote: reload this page/)
+  assert.equal(spawned.length, 1)
+  assert.equal(spawned[0][0], 'powershell.exe')
+  assert.match(decode(spawned[0][1]), /Invoke-CimMethod/)
+})

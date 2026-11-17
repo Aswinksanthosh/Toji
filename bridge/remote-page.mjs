@@ -557,7 +557,7 @@ function drawPanel(d,anim){
     acc(n+'|bt','Headphones',[btMenu(d)]),
     acc(n+'|out','Audio output',[outMenu(d)]),
     acc(n+'|code','Coding',coding),
-    acc(n+'|upd','Update this app',[go('Git pull','git_pull'),go('Update & restart','update_remote',undefined,'Update '+n+' and restart its remote? Reload this page in about 20 seconds.')]),
+    acc(n+'|upd','Update this app',[go('Git pull','git_pull'),go('Restart remote','restart_remote',undefined,'Restart the remote on '+n+'? Reload this page in about 20 seconds.'),go('Update & restart','update_remote',undefined,'Update '+n+' and restart its remote? Reload this page in about 20 seconds.')]),
     acc(n+'|sys','System',[go('Status','status'),go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?')]))
   p.append(hero,quick,steam,more)
   for(const g of games)paintGame(gaKey(n,g))

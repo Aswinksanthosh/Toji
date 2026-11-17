@@ -78,6 +78,7 @@ export const REMOTE_ACTIONS = [
   'jarvis_start',
   'git_pull',
   'update_remote',
+  'restart_remote',
   'steam_switch',
   'status',
   'app',
@@ -499,6 +500,8 @@ export function createRemoteActions({
         const last = out.trim().split(/\r?\n/).at(-1) || 'Done.'
         return `Update: ${last.slice(0, 120)}`
       }
+      case 'restart_remote':
+        return restartRemote('Restarting the remote')
       case 'update_remote':
         return updateRemote()
       case 'steam_switch':
@@ -684,6 +687,15 @@ export function createRemoteActions({
     return `Switching Steam to ${target.name}. Steam closes and starts again: about 30 seconds. If nothing changes, the steps are written to .jarvis\\steam-switch.log on that laptop.`
   }
 
+  // Starts the restart helper (see restartRemoteScript) and returns at once; the page is back in about 20 seconds.
+  function restartRemote(prefix) {
+    winOnly()
+    const child = spawnFn('powershell.exe', psArgs(restartRemoteScript(root, REMOTE_TASK)), { detached: true, stdio: 'ignore', windowsHide: true })
+    child.once('error', () => {})
+    child.unref?.()
+    return prefix ? `${prefix}: reload this page in about 20 seconds. Steps are logged in .jarvis\\restart.log.` : ''
+  }
+
   async function updateRemote() {
     const head = async () => (await run('git', ['-C', root, 'rev-parse', 'HEAD'])).trim()
     const before = await head()
@@ -692,16 +704,13 @@ export function createRemoteActions({
     versionCache.at = 0
     // What is running may be older than what is on disk (files pulled by hand, program not restarted).
     const base = /^[0-9a-f]{40}$/.test(runningHead) ? runningHead : before
-    if (base === after) return 'Already up to date. Nothing to restart.'
+    if (base === after) return 'Already up to date, so nothing was restarted. Use Restart remote to restart anyway.'
     const changed = (await run('git', ['-C', root, 'diff', '--name-only', base, after])).split(/\r?\n/).filter(Boolean)
     if (changed.some((f) => f === 'package.json' || f === 'package-lock.json')) {
       winOnly()
       await run('cmd.exe', ['/d', '/s', '/c', 'npm install'], { timeout: 180_000, cwd: root })
     }
-    winOnly()
-    const child = spawnFn('powershell.exe', psArgs(restartRemoteScript(root, REMOTE_TASK)), { detached: true, stdio: 'ignore', windowsHide: true })
-    child.once('error', () => {})
-    child.unref?.()
+    restartRemote('')
     return `Now running ${after.slice(0, 7)} (${changed.length} file${changed.length === 1 ? '' : 's'} changed). Restarting the remote: reload this page in about 20 seconds.`
   }
 
