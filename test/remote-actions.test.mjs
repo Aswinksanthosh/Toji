@@ -1,7 +1,7 @@
 // What the phone buttons do on a laptop. Windows calls are faked, so this runs anywhere.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
@@ -427,11 +427,12 @@ test('update and restart: pulls, installs only if the dependency files changed, 
   assert.equal(spawned[0][0], 'powershell.exe')
   const outer = decode(spawned[0][1])
   assert.match(outer, /Invoke-CimMethod -ClassName Win32_Process -MethodName Create/, 'the helper starts outside the scheduled task')
-  const script = Buffer.from(/\$inner = '([^']+)'/.exec(outer)[1], 'base64').toString('utf16le')
-  assert.match(script, /Stop-ScheduledTask -TaskName 'Jarvis Remote Buttons'/)
-  assert.ok(script.includes(`$root = '${ROOT}'`))
+  assert.match(outer, /Note 'restart requested'/, 'it logs before anything can go wrong')
+  assert.ok(outer.includes('restart-remote.ps1') && outer.includes(ROOT))
+  const script = readFileSync(new URL('../scripts/restart-remote.ps1', import.meta.url), 'utf8')
+  assert.match(script, /Stop-ScheduledTask -TaskName \$Task/)
   assert.match(script, /remote\\.mjs/)
-  assert.match(script, /Start-ScheduledTask -TaskName 'Jarvis Remote Buttons'/)
+  assert.match(script, /Start-ScheduledTask -TaskName \$Task/)
   assert.doesNotMatch(script, /Stop-Process -Name/)
   assert.equal(spawned[0][2].detached, true)
 
