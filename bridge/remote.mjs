@@ -11,6 +11,7 @@
  */
 
 import { createServer } from 'node:http'
+import { readFileSync } from 'node:fs'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createPhoneAuth, isPrivateAddress } from './phone.mjs'
 import { REMOTE_ACTIONS } from './remote-actions.mjs'
@@ -223,7 +224,17 @@ export const httpGameArt = (token) => async (device, game) => {
  * getGameArt(device, game) gives the picture of one of that laptop's games, or null.
  * artStore { list(), get(name), put(name, type, bytes) } keeps pictures chosen on the phone, here on the hub.
  */
-export async function startHub({ password, port = 8791, host = '0.0.0.0', getDevices, getGames, wake, forward, ping, info, getArt, getAvatar, getGameArt, artStore, allowPublic = false, now = Date.now }) {
+const ICON_DIR = new URL('./icons/', import.meta.url)
+const ICON_FILES = { '/icon-192.png': 192, '/apple-touch-icon.png': 192, '/icon-512.png': 512 }
+const iconBytes = (theme, size) => {
+  try {
+    return readFileSync(new URL(`${['rog', 'tuf'].includes(theme) ? theme : 'plain'}-${size}.png`, ICON_DIR))
+  } catch {
+    return null
+  }
+}
+
+export async function startHub({ iconTheme = () => 'plain', password, port = 8791, host = '0.0.0.0', getDevices, getGames, wake, forward, ping, info, getArt, getAvatar, getGameArt, artStore, allowPublic = false, now = Date.now }) {
   const auth = createPhoneAuth({ password, now })
   const seenGames = new Set()
 
@@ -233,6 +244,13 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
     try {
       const path = (req.url ?? '/').split('?')[0]
 
+      if (req.method === 'GET' && Object.hasOwn(ICON_FILES, path)) {
+        const bytes = iconBytes(iconTheme(), ICON_FILES[path])
+        if (!bytes) return json(res, 404, { error: 'No icon.' })
+        res.writeHead(200, { 'content-type': 'image/png', 'content-length': bytes.length, 'cache-control': 'public, max-age=300', 'x-content-type-options': 'nosniff' })
+        return res.end(bytes)
+      }
+
       if (req.method === 'GET' && path === '/') {
         const nonce = randomBytes(16).toString('base64')
         res.writeHead(200, {
@@ -241,7 +259,7 @@ export async function startHub({ password, port = 8791, host = '0.0.0.0', getDev
           'x-content-type-options': 'nosniff',
           'referrer-policy': 'no-referrer',
           'x-frame-options': 'DENY',
-          'content-security-policy': `default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; connect-src 'self'; img-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+          'content-security-policy': `default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; connect-src 'self'; img-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
         })
         return res.end(page(nonce))
       }

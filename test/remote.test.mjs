@@ -216,8 +216,8 @@ test('background pictures: only after unlocking, only for rog or tuf, and the po
   for (const bad of ['../../etc/passwd', 'rog/../x', '', 5, null, { a: 1 }]) assert.equal((await post({ theme: bad }, login.token)).status, 204, String(bad))
   assert.deepEqual(asked, ['rog', 'tuf'])
   const csp = (await fetch(url + '/')).headers.get('content-security-policy')
-  assert.match(csp, /img-src blob:;/)
-  assert.doesNotMatch(csp, /img-src[^;]*(https?:|data:|\*|'self')/)
+  assert.match(csp, /img-src 'self' blob:;/)  // 'self' is only for the home-screen icon, served by this program
+  assert.doesNotMatch(csp, /img-src[^;]*(https?:|data:|\*)/)
 })
 
 test('the page has the switch bar, both characters and moving backgrounds, and respects reduced motion', async (t) => {
@@ -617,4 +617,29 @@ test('the page asks the laptop for its status gently: not at all while hidden, a
   const html = await (await fetch(h.url + '/')).text()
   for (const part of ['function schedule(', 'if(!document.hidden)await refresh()', 'playing?30000:10000', "document.addEventListener('visibilitychange'", 'clearTimeout(timer)']) assert.ok(html.includes(part), part)
   assert.doesNotMatch(html, /setInterval/)
+})
+
+test('the page has an icon, served without a login, in the theme of the laptop', async () => {
+  let theme = 'rog'
+  const hub = await startHub({ password: 'a-long-test-password', port: 0, host: '127.0.0.1', getDevices: () => ({}), getGames: () => [], wake: async () => {}, forward: async () => '', ping: async () => false, iconTheme: () => theme })
+  try {
+    const base = `http://127.0.0.1:${hub.port}`
+    const page = await (await fetch(base + '/')).text()
+    assert.match(page, /rel="icon"[^>]*href="\/icon-192\.png"/)
+    assert.match(page, /rel="apple-touch-icon"/)
+    const rog = await fetch(base + '/icon-192.png')
+    assert.equal(rog.status, 200)
+    assert.equal(rog.headers.get('content-type'), 'image/png')
+    const rogBytes = Buffer.from(await rog.arrayBuffer())
+    assert.equal(rogBytes.subarray(1, 4).toString('latin1'), 'PNG')
+    theme = 'tuf'
+    const tuf = Buffer.from(await (await fetch(base + '/icon-192.png')).arrayBuffer())
+    assert.notDeepEqual(tuf, rogBytes)
+    theme = 'nonsense'
+    assert.equal((await fetch(base + '/apple-touch-icon.png')).status, 200, 'unknown theme falls back to the plain icon')
+    assert.equal((await fetch(base + '/icon-999.png')).status, 404)
+    assert.match((await fetch(base + '/')).headers.get('content-security-policy'), /img-src 'self' blob:/)
+  } finally {
+    await hub.close()
+  }
 })

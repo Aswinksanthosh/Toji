@@ -37,6 +37,7 @@ const addresses = (port) =>
     .map((a) => `http://${a.address}:${port}`)
     .join('  or  ')
 
+let localInfo = null
 if (token) {
   // Only a laptop does the things, so only then load the code that can.
   const { runDesktop, runLaunch } = await import('../bridge/local.mjs')
@@ -58,6 +59,7 @@ if (token) {
     gameIds: () => allGames(),
     gameUrl: (name) => steamGameUrlFor(name),
   })
+  localInfo = actions.info
   await startAgent({ token, port: agentPort, run: (action, { arg }) => actions.run(action, arg), info: actions.info, avatar: actions.avatar, gameArt: actions.gameArt })
   console.log(`[remote] agent ready on port ${agentPort}: this laptop can open Steam, start games, media keys, apps, restart, lock and more.`)
 }
@@ -117,6 +119,16 @@ const artStore = {
   },
 }
 
+// The icon of the home-screen shortcut follows the laptop: pink for a ROG, amber for a TUF (JARVIS_REMOTE_ICON=rog|tuf|plain forces one).
+let iconTheme = ['rog', 'tuf', 'plain'].includes(process.env.JARVIS_REMOTE_ICON) ? process.env.JARVIS_REMOTE_ICON : 'plain'
+if (!process.env.JARVIS_REMOTE_ICON && localInfo) {
+  localInfo()
+    .then((i) => {
+      iconTheme = /ROG/i.test(i?.model ?? '') ? 'rog' : /TUF/i.test(i?.model ?? '') ? 'tuf' : 'plain'
+    })
+    .catch(() => {})
+}
+
 if (password) {
   const { allGames } = await import('../bridge/steam-library.mjs').catch(() => ({ allGames: () => ({}) }))
   await startHub({
@@ -128,6 +140,7 @@ if (password) {
     forward: token ? httpForward(token) : async () => { throw new Error('No agent token is set on this hub.') },
     ping: token ? httpPing(token) : async () => false,
     info: token ? httpInfo(token) : undefined,
+    iconTheme: () => iconTheme,
     getArt,
     getAvatar: token ? httpAvatar(token) : undefined,
     getGameArt: token ? httpGameArt(token) : undefined,
