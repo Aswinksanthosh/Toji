@@ -271,19 +271,27 @@ if ($a) { Start-Process explorer.exe ("shell:AppsFolder\" + $a.AppID); $a.Name }
 // scheduled task: a helper inside the task would keep the task "running", and Windows ignores a start request for a
 // task that is still running. The helper waits so the answer can be sent, stops the task and any leftover copy, then starts it again.
 const restartHelperScript = (root, task) => String.raw`$root = ${psQuote(root)}
+$log = Join-Path $env:USERPROFILE '.jarvis\restart.log'
+function Note($m) { try { New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null; Add-Content -Path $log -Value ((Get-Date -Format s) + '  ' + $m) } catch {} }
+Note 'helper started'
 Start-Sleep -Seconds 2
 $t = Get-ScheduledTask -TaskName ${psQuote(task)} -ErrorAction SilentlyContinue
-if ($t) { Stop-ScheduledTask -TaskName ${psQuote(task)} -ErrorAction SilentlyContinue }
+Note ('task found: ' + [bool]$t)
+if ($t) { try { Stop-ScheduledTask -TaskName ${psQuote(task)} -ErrorAction Stop; Note 'task stopped' } catch { Note ('stop failed: ' + $_.Exception.Message) } }
+$n = 0
 Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
   Where-Object { $_.CommandLine -and $_.CommandLine -match 'remote\.mjs' } |
-  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $n++ }
+Note ('stopped ' + $n + ' leftover node process(es)')
 Start-Sleep -Seconds 2
-if ($t) { Start-ScheduledTask -TaskName ${psQuote(task)} }
-else { Start-Process node -ArgumentList 'scripts\remote.mjs' -WorkingDirectory $root -WindowStyle Hidden }`
+try {
+  if ($t) { Start-ScheduledTask -TaskName ${psQuote(task)} -ErrorAction Stop; Note 'task started' }
+  else { Start-Process node -ArgumentList 'scripts\remote.mjs' -WorkingDirectory $root -WindowStyle Hidden; Note 'started node directly' }
+} catch { Note ('start failed: ' + $_.Exception.Message) }`
 const restartRemoteScript = (root, task) => String.raw`$inner = ${psQuote(encode(restartHelperScript(root, task)))}
 $cmd = 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ' + $inner
 $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd }
-if ($r.ReturnValue -ne 0) { Start-Process powershell.exe -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-EncodedCommand', $inner) -WindowStyle Hidden }`
+if ($r.ReturnValue -ne 0) { Add-Content -Path (Join-Path $env:USERPROFILE '.jarvis\restart.log') -Value ('WMI create failed: ' + $r.ReturnValue); Start-Process powershell.exe -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-EncodedCommand', $inner) -WindowStyle Hidden }`
 export const REMOTE_TASK = 'Jarvis Remote Buttons'
 
 const MODEL = String.raw`Get-CimInstance Win32_ComputerSystem | ForEach-Object { "$($_.Manufacturer)|$($_.Model)" }`
