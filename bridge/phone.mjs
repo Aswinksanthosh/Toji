@@ -52,13 +52,29 @@ export function isPrivateAddress(addr) {
 const digest = (s) => createHash('sha256').update(String(s)).digest()
 const sameSecret = (a, b) => timingSafeEqual(digest(a), digest(b))
 
-/** A long password (12+ characters), or a PIN of 4 to 8 digits that is not too easy to guess (not 0000, 1111, 1234, 4321 ...). */
+/** This laptop itself, or a device on your Tailscale network. Never the home Wi-Fi, never the internet. */
+export function isTailscaleOrLoopback(addr) {
+  let a = String(addr ?? '').toLowerCase()
+  if (a.startsWith('::ffff:')) a = a.slice(7)
+  if (a === '::1' || a.startsWith('fd7a:115c:a1e0:')) return true
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(a)
+  if (!m) return false
+  const x = Number(m[1])
+  const y = Number(m[2])
+  return x === 127 || (x === 100 && y >= 64 && y <= 127)
+}
+
+/** A very guessable PIN: 0000, 1111, 1234, 4321 ... */
+export function isWeakPin(secret) {
+  const s = String(secret ?? '')
+  if (!/^\d{4,8}$/.test(s)) return false
+  return /^(\d)\1+$/.test(s) || '0123456789'.includes(s) || '9876543210'.includes(s)
+}
+
+/** A long password (12+ characters), or ANY PIN of 4 to 8 digits. A guessable PIN (0000, 1234) is allowed, but then the page answers only Tailscale and this laptop. */
 export function acceptableSecret(secret) {
   const s = String(secret ?? '')
-  if (s.length >= 12) return true
-  if (!/^\d{4,8}$/.test(s)) return false
-  if (/^(\d)\1+$/.test(s)) return false
-  return !('0123456789'.includes(s) || '9876543210'.includes(s))
+  return s.length >= 12 || /^\d{4,8}$/.test(s)
 }
 
 export function createPhoneAuth({ password, now = Date.now }) {
@@ -86,6 +102,15 @@ export function createPhoneAuth({ password, now = Date.now }) {
     login(ip, given) {
       const checked = check(ip, given)
       if (!checked.ok) return checked
+      const t = now()
+      for (const [k, exp] of tokens) if (exp <= t) tokens.delete(k)
+      while (tokens.size >= MAX_TOKENS) tokens.delete(tokens.keys().next().value)
+      const token = randomBytes(24).toString('base64url')
+      tokens.set(token, t + TOKEN_LIFETIME_MS)
+      return { token }
+    },
+    /** A session without a password (open mode only: the caller has already checked the network). */
+    grant() {
       const t = now()
       for (const [k, exp] of tokens) if (exp <= t) tokens.delete(k)
       while (tokens.size >= MAX_TOKENS) tokens.delete(tokens.keys().next().value)

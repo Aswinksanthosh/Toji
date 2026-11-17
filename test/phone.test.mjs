@@ -143,8 +143,16 @@ test('confirming the password again makes no new login, and counts wrong tries l
   assert.equal(auth.confirm('10.0.0.5', PASSWORD).ok, true)
 })
 
-test('a PIN of 4 to 8 digits is accepted unless it is easy to guess; long passwords still are', async () => {
-  const { acceptableSecret } = await import('../bridge/phone.mjs')
-  for (const ok of ['8426', '13579', '90210321', 'a-long-password-12']) assert.equal(acceptableSecret(ok), true, ok)
-  for (const bad of ['0000', '1111', '1234', '4321', '2345', '123', '123456789', 'abcd', 'short', '', undefined]) assert.equal(acceptableSecret(bad), false, String(bad))
+test('any PIN of 4 to 8 digits is accepted, and the guessable ones are recognised', async () => {
+  const { acceptableSecret, isWeakPin } = await import('../bridge/phone.mjs')
+  for (const ok of ['8426', '0000', '1234', '13579', '90210321', 'a-long-password-12']) assert.equal(acceptableSecret(ok), true, ok)
+  for (const bad of ['123', '123456789', 'abcd', 'short', '', undefined]) assert.equal(acceptableSecret(bad), false, String(bad))
+  for (const weak of ['0000', '1111', '1234', '4321', '2345']) assert.equal(isWeakPin(weak), true, weak)
+  for (const strong of ['8426', '1357', 'a-long-password-12', '']) assert.equal(isWeakPin(strong), false, strong)
+})
+
+test('open mode answers only this laptop and Tailscale', async () => {
+  const { isTailscaleOrLoopback } = await import('../bridge/phone.mjs')
+  for (const ok of ['127.0.0.1', '::1', '::ffff:127.0.0.1', '100.101.102.103', '100.64.0.1', 'fd7a:115c:a1e0::1']) assert.equal(isTailscaleOrLoopback(ok), true, ok)
+  for (const bad of ['192.168.1.5', '10.0.0.2', '172.16.0.1', '8.8.8.8', '100.128.0.1', 'fe80::1', '', undefined]) assert.equal(isTailscaleOrLoopback(bad), false, String(bad))
 })

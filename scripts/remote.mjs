@@ -9,11 +9,14 @@ import { homedir, networkInterfaces } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { httpAvatar, httpForward, httpGameArt, httpInfo, httpPing, startAgent, startHub } from '../bridge/remote.mjs'
-import { acceptableSecret } from '../bridge/phone.mjs'
+import { acceptableSecret, isWeakPin } from '../bridge/phone.mjs'
 import { createRemoteActions } from '../bridge/remote-actions.mjs'
 import { knownDevices, sendMagicPacket } from '../bridge/wake.mjs'
 
-const password = process.env.JARVIS_REMOTE_PASSWORD ?? ''
+const rawPassword = process.env.JARVIS_REMOTE_PASSWORD ?? ''
+// JARVIS_REMOTE_PASSWORD=none: no password at all. Then ONLY this laptop and your Tailscale devices can reach the page.
+const openMode = rawPassword.trim().toLowerCase() === 'none'
+const password = openMode ? 'open-mode-unused-' + Math.random().toString(36).slice(2) + Date.now() : rawPassword
 const token = process.env.JARVIS_AGENT_TOKEN ?? ''
 const agentPort = Number(process.env.JARVIS_AGENT_PORT ?? 8790)
 const hubPort = Number(process.env.JARVIS_REMOTE_PORT ?? 8791)
@@ -23,7 +26,7 @@ if (!password && !token) {
   process.exit(1)
 }
 if (password && !acceptableSecret(password)) {
-  console.error('JARVIS_REMOTE_PASSWORD must be a PIN of 4 to 8 digits (not 0000 or 1234), or a password of 12 or more characters.')
+  console.error('JARVIS_REMOTE_PASSWORD must be a PIN of 4 to 8 digits, or a password of 12 or more characters.')
   process.exit(1)
 }
 if (token && token.length < 24) {
@@ -134,6 +137,8 @@ if (password) {
   const { allGames } = await import('../bridge/steam-library.mjs').catch(() => ({ allGames: () => ({}) }))
   await startHub({
     password,
+    open: openMode,
+    tailscaleOnly: isWeakPin(password),
     port: hubPort,
     getDevices: () => knownDevices(),
     getGames: () => Object.keys(allGames()),
@@ -147,5 +152,5 @@ if (password) {
     getGameArt: token ? httpGameArt(token) : undefined,
     artStore,
   })
-  console.log(`[remote] phone page on, password protected. On your phone open: ${addresses(hubPort) || `port ${hubPort}`}`)
+  console.log(`[remote] phone page on, ${openMode ? 'NO PASSWORD (Tailscale and this laptop only)' : 'password protected'}. On your phone open: ${addresses(hubPort) || `port ${hubPort}`}`)
 }

@@ -13,7 +13,7 @@
 import { createServer } from 'node:http'
 import { readFileSync } from 'node:fs'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { createPhoneAuth, isPrivateAddress } from './phone.mjs'
+import { createPhoneAuth, isPrivateAddress, isTailscaleOrLoopback } from './phone.mjs'
 import { REMOTE_ACTIONS } from './remote-actions.mjs'
 import { page } from './remote-page.mjs'
 
@@ -234,13 +234,15 @@ const iconBytes = (theme, size) => {
   }
 }
 
-export async function startHub({ iconTheme = () => 'plain', password, port = 8791, host = '0.0.0.0', getDevices, getGames, wake, forward, ping, info, getArt, getAvatar, getGameArt, artStore, allowPublic = false, now = Date.now }) {
+export async function startHub({ open = false, tailscaleOnly = false, iconTheme = () => 'plain', password, port = 8791, host = '0.0.0.0', getDevices, getGames, wake, forward, ping, info, getArt, getAvatar, getGameArt, artStore, allowPublic = false, now = Date.now }) {
   const auth = createPhoneAuth({ password, now })
   const seenGames = new Set()
 
   const server = createServer(async (req, res) => {
     const ip = req.socket.remoteAddress
     if (!allowPublic && !isPrivateAddress(ip)) return json(res, 403, { error: 'Private networks only.' })
+    // Open mode (no password) and guessable PINs answer only this laptop and your Tailscale devices, never the home Wi-Fi.
+    if ((open || tailscaleOnly) && !isTailscaleOrLoopback(ip)) return json(res, 403, { error: 'Tailscale only.' })
     try {
       const path = (req.url ?? '/').split('?')[0]
 
@@ -266,6 +268,7 @@ export async function startHub({ iconTheme = () => 'plain', password, port = 879
 
       if (req.method === 'POST' && path === '/login') {
         const body = await readJson(req)
+        if (body.open) return open ? json(res, 200, { token: auth.grant().token, open: true }) : json(res, 400, { error: 'A PIN is needed.' })
         const r = auth.login(ip, body.password)
         return r.token ? json(res, 200, { token: r.token }) : json(res, r.status, { error: r.error })
       }
@@ -368,7 +371,7 @@ export async function startHub({ iconTheme = () => 'plain', password, port = 879
         const device = devices[String(name ?? '').toLowerCase()]
         if (!device) return json(res, 400, { error: 'Unknown device.' })
         if (!HUB_ACTIONS.has(action)) return json(res, 400, { error: 'Unknown action.' })
-        if (PASSWORD_ACTIONS.has(action)) {
+        if (PASSWORD_ACTIONS.has(action) && !open) {
           if (typeof again !== 'string' || !again) return json(res, 403, { error: 'Enter the remote password to do this.' })
           const confirmed = auth.confirm(ip, again)
           if (!confirmed.ok) return json(res, confirmed.status, { error: confirmed.error })

@@ -276,7 +276,7 @@ body[data-theme] .b.danger,body[data-theme] .askbox .b.danger{background:linear-
 <nav class="tabs" id="tabs" hidden></nav>
 <script nonce="${nonce}">
 const $=id=>document.getElementById(id)
-let token='',timer=0,data=null,active='',lastSig='',msgTimer=0,dir='',firstName=''
+let openMode=false,token='',timer=0,data=null,active='',lastSig='',msgTimer=0,dir='',firstName=''
 const opened=new Set(),picked={},seen={},pickedApp={}
 const APP_LABELS={discord:'Discord',spotify:'Spotify',epic:'Epic Games',claude:'Claude',glidex:'ASUS GlideX'}
 const appLabel=k=>APP_LABELS[k]||k.charAt(0).toUpperCase()+k.slice(1)
@@ -517,7 +517,7 @@ function drawPanel(d,anim){
     {label:'Cancel turn off',hint:'stops a waiting turn off or restart',run:()=>act(n,'shutdown_cancel')},
     {label:'Restart',hint:'comes back by itself',run:()=>act(n,'restart')},
     {label:'Sleep',hint:'unreachable until its power button is pressed',run:()=>act(n,'sleep')},
-    {label:'Turn off',hint:'asks for the PIN',danger:true,run:()=>askPassword(n)}])
+    {label:'Turn off',hint:'asks to confirm',danger:true,run:()=>askPassword(n)}])
   const quick=el('div','glass row');quick.append(btn('Wake',()=>act(n,'wake'),!d.canWake),go('Lock','lock'),go('Screen off','screen_off'),pwr)
   const steam=el('div','steam');steam.append(el('h3','','STEAM'))
   const head=el('div','sh'),txt=el('div','txt')
@@ -629,7 +629,15 @@ function schedule(){
   timer=setTimeout(async()=>{if(!document.hidden)await refresh();schedule()},playing?30000:10000)
 }
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&token)refresh()})
+async function tryOpen(){
+  try{const j=await api('/login',{open:1});if(j.token&&j.open){token=j.token;openMode=true;try{sessionStorage.setItem('t',token)}catch(x){};return true}}catch(e){}
+  return false
+}
 function show(){
+  if(token)return showNow()
+  tryOpen().then(ok=>{showNow()})
+}
+function showNow(){
   if(token)hideLogin();else showLogin()
   $('app').hidden=!token;$('tabs').hidden=!token;clearTimeout(timer)
   if(!token){document.body.dataset.theme='plain';return}
@@ -645,6 +653,7 @@ function showAsk(title,text,label,danger,needPassword){
   setTimeout(()=>{if(needPassword)$('askpw').focus();else $('askgo').focus()},60)
 }
 function askPassword(device){
+  if(openMode){askFor='';askFn=()=>act(device,'shutdown');showAsk('Turn off '+device+'?','It will not come back until you press its power button.','Turn off',true,false);return}
   askFor=device;askFn=null
   showAsk('Turn off '+device+'?','It will not come back until you press its power button. Enter the remote PIN to confirm.','Turn off',true,true)
 }

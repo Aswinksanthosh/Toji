@@ -643,3 +643,24 @@ test('the page has an icon, served without a login, in the theme of the laptop',
     await hub.close()
   }
 })
+
+test('open mode (no password): the page lets you in without one, and turn off needs no password; closed mode still asks', async () => {
+  const forwarded = []
+  const mk = (open) => startHub({ open, password: 'a-long-test-password', port: 0, host: '127.0.0.1', getDevices: () => ({ laptop: { agent: 'http://x' } }), getGames: () => [], wake: async () => {}, forward: async (d, a) => (forwarded.push(a), 'ok'), ping: async () => true })
+  const post = (hub, path, body, token) => fetch(`http://127.0.0.1:${hub.port}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) })
+  const closed = await mk(false)
+  const open = await mk(true)
+  try {
+    assert.equal((await post(closed, '/login', { open: 1 })).status, 400, 'a closed hub does not let you in without a password')
+    const j = await (await post(open, '/login', { open: 1 })).json()
+    assert.equal(j.open, true)
+    assert.equal((await post(open, '/api/devices', {}, j.token)).status, 200)
+    assert.equal((await post(open, '/api/do', { device: 'laptop', action: 'shutdown' }, j.token)).status, 200)
+    assert.deepEqual(forwarded, ['shutdown'])
+    const t2 = (await (await post(closed, '/login', { password: 'a-long-test-password' })).json()).token
+    assert.equal((await post(closed, '/api/do', { device: 'laptop', action: 'shutdown' }, t2)).status, 403, 'closed hub: turn off still needs the password')
+  } finally {
+    await closed.close()
+    await open.close()
+  }
+})
