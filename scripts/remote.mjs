@@ -39,7 +39,8 @@ const addresses = (port) =>
 
 if (token) {
   // Only a laptop does the things, so only then load the code that can.
-  const { knownGames, runDesktop, runLaunch, steamGameUrl } = await import('../bridge/local.mjs')
+  const { runDesktop, runLaunch } = await import('../bridge/local.mjs')
+  const { allGames, steamGameUrlFor } = await import('../bridge/steam-library.mjs')
   const root = join(dirname(fileURLToPath(import.meta.url)), '..')
   // The version this program started with, so the page can tell when newer files are waiting to be run.
   let runningHead = ''
@@ -53,9 +54,9 @@ if (token) {
     runningHead,
     launch: (target) => runLaunch(target),
     desktop: (action) => runDesktop(action),
-    games: () => Object.keys(knownGames()),
-    gameIds: () => knownGames(),
-    gameUrl: (name) => steamGameUrl(name),
+    games: () => Object.keys(allGames()),
+    gameIds: () => allGames(),
+    gameUrl: (name) => steamGameUrlFor(name),
   })
   await startAgent({ token, port: agentPort, run: (action, { arg }) => actions.run(action, arg), info: actions.info, avatar: actions.avatar, gameArt: actions.gameArt })
   console.log(`[remote] agent ready on port ${agentPort}: this laptop can open Steam, start games, media keys, apps, restart, lock and more.`)
@@ -117,12 +118,12 @@ const artStore = {
 }
 
 if (password) {
-  const { knownGames } = await import('../bridge/local.mjs').catch(() => ({ knownGames: () => ({}) }))
+  const { allGames } = await import('../bridge/steam-library.mjs').catch(() => ({ allGames: () => ({}) }))
   await startHub({
     password,
     port: hubPort,
     getDevices: () => knownDevices(),
-    getGames: () => Object.keys(knownGames()),
+    getGames: () => Object.keys(allGames()),
     wake: (device) => sendMagicPacket(device.mac, { broadcast: device.broadcast }),
     forward: token ? httpForward(token) : async () => { throw new Error('No agent token is set on this hub.') },
     ping: token ? httpPing(token) : async () => false,
