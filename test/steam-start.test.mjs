@@ -33,7 +33,7 @@ test('turned on: waits, then opens Big Picture once for this boot', async () => 
   const l = lab({ JARVIS_STEAM_AT_START: '1' })
   assert.equal(await l.run(), 'started')
   assert.deepEqual(l.launched, ['steam://open/bigpicture'])
-  assert.deepEqual(l.waits, [10000])
+  assert.deepEqual(l.waits, [0])
   assert.equal(await l.run(), 'already', 'the remote restarting in the same boot does not open it again')
   assert.equal(l.launched.length, 1)
 })
@@ -46,14 +46,22 @@ test('a new boot opens it again', async () => {
 })
 
 test('the wait can be set, within sensible limits', async () => {
-  for (const [given, expected] of [['60', 60000], ['0', 0], ['3', 3000], ['9999', 300000], ['nope', 10000], ['', 10000]]) {
+  for (const [given, expected] of [['60', 60000], ['0', 0], ['3', 3000], ['9999', 300000], ['nope', 0], ['', 0]]) {
     const l = lab({ JARVIS_STEAM_AT_START: 'yes', JARVIS_STEAM_DELAY: given })
     await l.run()
     assert.deepEqual(l.waits, [expected], given)
   }
 })
 
-test('a launch that fails is reported, not thrown', async () => {
+test('a first launch that fails is tried once more, and a second failure is reported, not thrown', async () => {
+  let tries = 0
+  const waits = []
+  const ok = await maybeStartSteam({ launch: async () => { if (++tries === 1) throw new Error('not ready') }, env: { JARVIS_STEAM_AT_START: '1' }, readStamp: () => { throw new Error('x') }, writeStamp() {}, sleep: async (ms) => waits.push(ms), log: () => {} })
+  assert.equal(ok, 'started')
+  assert.deepEqual(waits, [0, 15000])
+})
+
+test('a launch that always fails is reported, not thrown', async () => {
   const l = await maybeStartSteam({ launch: async () => { throw new Error('no steam') }, env: { JARVIS_STEAM_AT_START: '1' }, readStamp: () => { throw new Error('x') }, writeStamp() {}, sleep: async () => {}, log: () => {} })
   assert.equal(l, 'failed')
 })

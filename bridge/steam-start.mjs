@@ -3,7 +3,7 @@
  * full-screen mode), waits a few seconds for Windows and Steam to settle, and then does what the Big Picture button does.
  *
  *   JARVIS_STEAM_AT_START=1      turn it on (a Windows user variable, like the other JARVIS_ settings)
- *   JARVIS_STEAM_DELAY=10        seconds to wait first (0 to 300, default 10)
+ *   JARVIS_STEAM_DELAY=0         seconds to wait first (0 to 300, default 0: as soon as the remote starts)
  *
  * Restarting only the remote (the Restart remote button, an update) does not open it again: the boot it was opened in is remembered.
  */
@@ -39,15 +39,19 @@ export async function maybeStartSteam({
   }
   if (Math.abs(Number(last) - Number(boot)) <= 2) return 'already'
   const given = Number(env.JARVIS_STEAM_DELAY)
-  const delay = Number.isFinite(given) && String(env.JARVIS_STEAM_DELAY ?? '').trim() !== '' ? Math.min(Math.max(given, 0), 300) : 10
+  const delay = Number.isFinite(given) && String(env.JARVIS_STEAM_DELAY ?? '').trim() !== '' ? Math.min(Math.max(given, 0), 300) : 0
   writeStamp(boot)
   await sleep(delay * 1000)
-  try {
-    await launch('steam://open/bigpicture')
-    log(`[remote] opened Steam Big Picture (${delay} s after the remote started).`)
-    return 'started'
-  } catch (err) {
-    log(`[remote] could not open Steam Big Picture: ${err.message}`)
-    return 'failed'
+  // The first try can come before Windows or Steam is ready: one more try, 15 seconds later, if it fails.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      await launch('steam://open/bigpicture')
+      log(`[remote] opened Steam Big Picture (${delay} s wait${attempt > 1 ? ', second try' : ''}).`)
+      return 'started'
+    } catch (err) {
+      log(`[remote] could not open Steam Big Picture (try ${attempt}): ${err.message}`)
+      if (attempt === 1) await sleep(15_000)
+    }
   }
+  return 'failed'
 }
