@@ -64,6 +64,8 @@ if (token) {
     gameUrl: (name) => steamGameUrlFor(name),
   })
   localInfo = actions.info
+  const { maybeStartSteam } = await import('../bridge/steam-start.mjs')
+  maybeStartSteam({ launch: (target) => runLaunch(target) }).catch(() => {})
   await startAgent({ token, port: agentPort, run: (action, { arg }) => actions.run(action, arg), info: actions.info, avatar: actions.avatar, gameArt: actions.gameArt })
   console.log(`[remote] agent ready on port ${agentPort}: this laptop can open Steam, start games, media keys, apps, restart, lock and more.`)
 }
