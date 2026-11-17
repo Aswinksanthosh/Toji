@@ -1,9 +1,9 @@
 /**
  * Opens Steam Big Picture by itself when the laptop starts, once per boot. The remote starts at sign-in (also in Xbox
- * full-screen mode), waits a little for Windows and Steam to settle, and then does what the Big Picture button does.
+ * full-screen mode), waits a few seconds for Windows and Steam to settle, and then does what the Big Picture button does.
  *
  *   JARVIS_STEAM_AT_START=1      turn it on (a Windows user variable, like the other JARVIS_ settings)
- *   JARVIS_STEAM_DELAY=25        seconds to wait first (5 to 300)
+ *   JARVIS_STEAM_DELAY=10        seconds to wait first (0 to 300, default 10)
  *
  * Restarting only the remote (the Restart remote button, an update) does not open it again: the boot it was opened in is remembered.
  */
@@ -38,7 +38,8 @@ export async function maybeStartSteam({
     // First time.
   }
   if (Math.abs(Number(last) - Number(boot)) <= 2) return 'already'
-  const delay = Math.min(Math.max(Number(env.JARVIS_STEAM_DELAY) || 25, 5), 300)
+  const given = Number(env.JARVIS_STEAM_DELAY)
+  const delay = Number.isFinite(given) && String(env.JARVIS_STEAM_DELAY ?? '').trim() !== '' ? Math.min(Math.max(given, 0), 300) : 10
   writeStamp(boot)
   await sleep(delay * 1000)
   try {

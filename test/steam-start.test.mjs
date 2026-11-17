@@ -33,7 +33,7 @@ test('turned on: waits, then opens Big Picture once for this boot', async () => 
   const l = lab({ JARVIS_STEAM_AT_START: '1' })
   assert.equal(await l.run(), 'started')
   assert.deepEqual(l.launched, ['steam://open/bigpicture'])
-  assert.deepEqual(l.waits, [25000])
+  assert.deepEqual(l.waits, [10000])
   assert.equal(await l.run(), 'already', 'the remote restarting in the same boot does not open it again')
   assert.equal(l.launched.length, 1)
 })
@@ -46,7 +46,7 @@ test('a new boot opens it again', async () => {
 })
 
 test('the wait can be set, within sensible limits', async () => {
-  for (const [given, expected] of [['60', 60000], ['1', 5000], ['9999', 300000], ['nope', 25000]]) {
+  for (const [given, expected] of [['60', 60000], ['0', 0], ['3', 3000], ['9999', 300000], ['nope', 10000], ['', 10000]]) {
     const l = lab({ JARVIS_STEAM_AT_START: 'yes', JARVIS_STEAM_DELAY: given })
     await l.run()
     assert.deepEqual(l.waits, [expected], given)
