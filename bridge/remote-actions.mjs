@@ -81,6 +81,8 @@ export const REMOTE_ACTIONS = [
   'steam_switch',
   'status',
   'app',
+  'bt_connect',
+  'bt_disconnect',
   'button',
   'mode_saver',
   'mode_balanced',
@@ -176,6 +178,40 @@ const OLLAMA_STOP = String.raw`Get-Process -ErrorAction SilentlyContinue | Where
 
 const OLLAMA_START = String.raw`$p = Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama app.exe'
 if (Test-Path $p) { Start-Process $p } else { Start-Process ollama -ArgumentList 'serve' -WindowStyle Hidden }`
+
+
+// Bluetooth headphones. Paired devices are listed from Windows; connecting or disconnecting asks Windows to
+// switch the audio services (music, calls) of ONE device, found by its exact name. Nothing else is touched.
+const BT_LIST = String.raw`Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match '^BTHENUM\\DEV_' -and $_.FriendlyName } | ForEach-Object { $_.FriendlyName } | Sort-Object -Unique`
+
+const btScript = (name, connect) => String.raw`$name = ${psQuote(name)}
+$connect = ${connect ? '$true' : '$false'}
+$dev = Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match '^BTHENUM\\DEV_' -and $_.FriendlyName -eq $name } | Select-Object -First 1
+if (-not $dev) { 'notfound'; exit }
+$hex = [regex]::Match($dev.InstanceId, 'DEV_([0-9A-Fa-f]{12})').Groups[1].Value
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class RspBt {
+  [StructLayout(LayoutKind.Sequential)] public struct ST { public ushort a, b, c, d, e, f, g, h; }
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public struct DEV { public uint size; public ulong addr; public uint cod; public int conn; public int rem; public int auth; public ST seen; public ST used; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 248)] public string name; }
+  [DllImport("bthprops.cpl", SetLastError = true)] static extern uint BluetoothSetServiceState(IntPtr radio, ref DEV d, ref Guid g, uint flags);
+  public static string Run(ulong address, bool connect) {
+    DEV d = new DEV(); d.size = (uint)Marshal.SizeOf(typeof(DEV)); d.addr = address;
+    string[] ids = { "0000110b-0000-1000-8000-00805f9b34fb", "0000111e-0000-1000-8000-00805f9b34fb", "00001108-0000-1000-8000-00805f9b34fb" };
+    uint ok = 1; uint last = 0;
+    foreach (string id in ids) {
+      Guid g = new Guid(id);
+      if (connect) { BluetoothSetServiceState(IntPtr.Zero, ref d, ref g, 0); System.Threading.Thread.Sleep(300); }
+      last = BluetoothSetServiceState(IntPtr.Zero, ref d, ref g, connect ? 1u : 0u);
+      if (last == 0) ok = 0;
+    }
+    return ok == 0 ? "ok" : "fail:" + last;
+  }
+}
+'@
+[RspBt]::Run([Convert]::ToUInt64($hex, 16), $connect)`
 
 const BATTERY = String.raw`$b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($b) { "$($b.EstimatedChargeRemaining)|$($b.BatteryStatus)" }`
@@ -427,6 +463,16 @@ export function createRemoteActions({
         if (!opened) throw new Error(`${key} was not found in the Start menu on this laptop.`)
         return `Opening ${opened}.`
       }
+      case 'bt_connect':
+      case 'bt_disconnect': {
+        const connect = action === 'bt_connect'
+        const names = await listHeadphones()
+        const name = names.find((n) => n.toLowerCase() === String(arg ?? '').toLowerCase().trim())
+        if (!name) throw new Error('That device is not paired with this laptop.')
+        const out = (await ps(btScript(name, connect), { timeout: 30_000 })).trim().split(/\r?\n/).at(-1)
+        if (out === 'ok') return connect ? `Connecting ${name}. Open its case or take it out if it does not connect in 10 seconds. It must not be busy with another device.` : `${name} disconnected from this laptop. It is free for your phone or another device now.`
+        throw new Error(out === 'notfound' ? 'Windows no longer lists that device.' : 'Windows refused (are the earphones in range and awake?).')
+      }
       case 'button':
         return runButton(arg)
       default:
@@ -638,6 +684,15 @@ export function createRemoteActions({
     })
   }
 
+  let btCache = { at: 0, value: [] }
+  async function listHeadphones() {
+    if (platform !== 'win32') return []
+    if (Date.now() - btCache.at < 60_000) return btCache.value
+    const value = await ps(BT_LIST, { timeout: 15_000 }).then((o) => o.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && l.length <= 40 && !/[\u0000-\u001f]/.test(l)).slice(0, 20), () => [])
+    btCache = { at: Date.now(), value }
+    return value
+  }
+
   let modelCache = null
   const loadModel = () =>
     (modelCache ??= (platform === 'win32' ? ps(MODEL).then(cleanModel, () => '') : Promise.resolve('')))
@@ -732,6 +787,7 @@ export function createRemoteActions({
         buttons: Object.keys(knownButtons(buttonsFile)),
         ...(await versionInfo()),
         gameArt: games().filter((g) => gameArtFile(g)),
+        headphones: await listHeadphones(),
         apps: [...Object.keys(APPS), ...Object.keys(START_APPS), ...Object.keys(knownRemoteApps(appsFile))],
         model,
         steam: steam ? { user: steam.user, playing: steam.playing, avatar: Boolean(avatarFile(steam)), id: steam.id, accounts: steam.accounts.map(({ id, name }) => ({ id, name })) } : null,

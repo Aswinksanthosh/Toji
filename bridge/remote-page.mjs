@@ -452,6 +452,14 @@ async function ensureAvatar(d,av){
     if(r.status===200){avatars[k]=URL.createObjectURL(await r.blob());for(const a of document.querySelectorAll('.avatar'))if(a.dataset.key===k)paintAvatar(a,avatars[k])}
   }catch(e){delete avatars[k]}
 }
+const pickedBt={}
+function btMenu(d){
+  const n=d.name,c=!d.canControl,list=d.headphones||[]
+  if(!list.includes(pickedBt[n]))pickedBt[n]=list[0]||''
+  const wrap=el('div','appmenu')
+  wrap.append(dropdown(list,pickedBt[n],v=>{pickedBt[n]=v},c||!list.length),btn('Connect',()=>act(n,'bt_connect',pickedBt[n]),c||!list.length,undefined,'go'),btn('Disconnect',()=>act(n,'bt_disconnect',pickedBt[n]),c||!list.length))
+  return wrap
+}
 function appMenu(d){
   const n=d.name,c=!d.canControl,keys=d.apps&&d.apps.length?d.apps:['discord','spotify','epic','claude','glidex']
   if(!keys.includes(pickedApp[n]))pickedApp[n]=keys[0]
@@ -538,6 +546,7 @@ function drawPanel(d,anim){
   more.append(
     acc(n+'|media','Media',[go('Prev','media_prev'),go('Play / pause','media_playpause'),go('Next','media_next'),go('Vol -','volume_down'),go('Mute','mute'),go('Vol +','volume_up')]),
     acc(n+'|apps','Open apps',[appMenu(d)]),
+    acc(n+'|bt','Headphones',[btMenu(d)]),
     acc(n+'|code','Coding',coding),
     acc(n+'|upd','Update this app',[go('Git pull','git_pull'),go('Update & restart','update_remote',undefined,'Update '+n+' and restart its remote? Reload this page in about 20 seconds.')]),
     acc(n+'|sys','System',[go('Status','status'),go('Game mode','game_mode',undefined,'Stop Jarvis and unload the local models on '+n+'?')]))
