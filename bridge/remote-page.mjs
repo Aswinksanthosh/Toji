@@ -264,12 +264,12 @@ body[data-theme] .b.danger,body[data-theme] .askbox .b.danger{background:linear-
 <div id="loginSlot"></div>
 <template id="loginTpl"><form id="login" autocomplete="on" method="post"><label for="user">Name</label>
 <input id="user" name="username" type="text" value="remote" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next">
-<label for="pw">Password</label>
+<label for="pw">PIN</label>
 <input id="pw" name="password" type="password" autocomplete="current-password" required enterkeyhint="go"><button class="b">Unlock</button><div id="lerr"></div></form></template>
 <input type="file" id="pick" accept="image/*" hidden>
 <div id="ask" class="ask" hidden><form id="askform" class="askbox" autocomplete="off">
 <h2 id="asktitle">Turn off?</h2><p id="asktext"></p>
-<input id="askpw" type="password" autocomplete="current-password" placeholder="Remote password" required>
+<input id="askpw" type="password" autocomplete="current-password" placeholder="Remote PIN" required>
 <div class="row"><button type="button" id="askcancel" class="b">Cancel</button><button class="b danger" id="askgo">Turn off</button></div>
 <div id="askerr"></div></form></div>
 <main id="app" hidden><div id="msg" class="msg"></div><div id="panel" class="panel"></div></main>
@@ -517,7 +517,7 @@ function drawPanel(d,anim){
     {label:'Cancel turn off',hint:'stops a waiting turn off or restart',run:()=>act(n,'shutdown_cancel')},
     {label:'Restart',hint:'comes back by itself',run:()=>act(n,'restart')},
     {label:'Sleep',hint:'unreachable until its power button is pressed',run:()=>act(n,'sleep')},
-    {label:'Turn off',hint:'asks for the password',danger:true,run:()=>askPassword(n)}])
+    {label:'Turn off',hint:'asks for the PIN',danger:true,run:()=>askPassword(n)}])
   const quick=el('div','glass row');quick.append(btn('Wake',()=>act(n,'wake'),!d.canWake),go('Lock','lock'),go('Screen off','screen_off'),pwr)
   const steam=el('div','steam');steam.append(el('h3','','STEAM'))
   const head=el('div','sh'),txt=el('div','txt')
@@ -646,7 +646,7 @@ function showAsk(title,text,label,danger,needPassword){
 }
 function askPassword(device){
   askFor=device;askFn=null
-  showAsk('Turn off '+device+'?','It will not come back until you press its power button. Enter the remote password to confirm.','Turn off',true,true)
+  showAsk('Turn off '+device+'?','It will not come back until you press its power button. Enter the remote PIN to confirm.','Turn off',true,true)
 }
 function confirmBox(title,text,label,fn){askFor='';askFn=fn;showAsk(title,text,label,false,false)}
 function closeAsk(){$('ask').hidden=true;$('askpw').value='';$('askpw').hidden=false;$('askpw').required=true;askFor='';askFn=null}

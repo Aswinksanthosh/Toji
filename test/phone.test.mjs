@@ -142,3 +142,9 @@ test('confirming the password again makes no new login, and counts wrong tries l
   t += 60 * 60 * 1000
   assert.equal(auth.confirm('10.0.0.5', PASSWORD).ok, true)
 })
+
+test('a PIN of 4 to 8 digits is accepted unless it is easy to guess; long passwords still are', async () => {
+  const { acceptableSecret } = await import('../bridge/phone.mjs')
+  for (const ok of ['8426', '13579', '90210321', 'a-long-password-12']) assert.equal(acceptableSecret(ok), true, ok)
+  for (const bad of ['0000', '1111', '1234', '4321', '2345', '123', '123456789', 'abcd', 'short', '', undefined]) assert.equal(acceptableSecret(bad), false, String(bad))
+})

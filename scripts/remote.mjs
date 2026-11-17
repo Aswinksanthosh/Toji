@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Phone remote buttons. No AI. Run on each laptop (agent + hub) and/or on an always-on device (hub).
 //   JARVIS_AGENT_TOKEN      (24+ chars) lets this machine act as an agent, and the hub talk to agents
-//   JARVIS_REMOTE_PASSWORD  (12+ chars) serves the phone page (the hub)
+//   JARVIS_REMOTE_PASSWORD  a PIN (4 to 8 digits) or a password (12+ chars): serves the phone page (the hub)
 // Devices come from ~/.jarvis/devices.json, games from ~/.jarvis/games.json.
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -9,6 +9,7 @@ import { homedir, networkInterfaces } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { httpAvatar, httpForward, httpGameArt, httpInfo, httpPing, startAgent, startHub } from '../bridge/remote.mjs'
+import { acceptableSecret } from '../bridge/phone.mjs'
 import { createRemoteActions } from '../bridge/remote-actions.mjs'
 import { knownDevices, sendMagicPacket } from '../bridge/wake.mjs'
 
@@ -21,8 +22,8 @@ if (!password && !token) {
   console.error('Set JARVIS_REMOTE_PASSWORD (the phone page) and/or JARVIS_AGENT_TOKEN (this laptop acts on requests). Run Setup-Remote.cmd.')
   process.exit(1)
 }
-if (password && password.length < 12) {
-  console.error('JARVIS_REMOTE_PASSWORD must be at least 12 characters.')
+if (password && !acceptableSecret(password)) {
+  console.error('JARVIS_REMOTE_PASSWORD must be a PIN of 4 to 8 digits (not 0000 or 1234), or a password of 12 or more characters.')
   process.exit(1)
 }
 if (token && token.length < 24) {

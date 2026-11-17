@@ -52,6 +52,15 @@ export function isPrivateAddress(addr) {
 const digest = (s) => createHash('sha256').update(String(s)).digest()
 const sameSecret = (a, b) => timingSafeEqual(digest(a), digest(b))
 
+/** A long password (12+ characters), or a PIN of 4 to 8 digits that is not too easy to guess (not 0000, 1111, 1234, 4321 ...). */
+export function acceptableSecret(secret) {
+  const s = String(secret ?? '')
+  if (s.length >= 12) return true
+  if (!/^\d{4,8}$/.test(s)) return false
+  if (/^(\d)\1+$/.test(s)) return false
+  return !('0123456789'.includes(s) || '9876543210'.includes(s))
+}
+
 export function createPhoneAuth({ password, now = Date.now }) {
   const tokens = new Map() // token -> expires
   const fails = new Map() // ip -> { count, first, lockedUntil }

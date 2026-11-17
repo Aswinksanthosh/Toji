@@ -11,9 +11,11 @@ Write-Host ''
 $serve = Read-Host 'Serve the phone page on THIS device? y/n'
 if ($serve -match '^(y|yes)$') {
   do {
-    $one = Read-Plain 'Choose a password for the phone page (12+ characters)'
+    $one = Read-Plain 'Choose a PIN for the phone page (4 to 8 digits, or a 12+ character password)'
     $two = Read-Plain 'Type it again'
-    if ($one.Length -lt 12) { Write-Host 'Too short.' -ForegroundColor Yellow }
+    $weak = ($one -match '^(\d)\1+$') -or ('0123456789'.Contains($one)) -or ('9876543210'.Contains($one))
+    $okPin = ($one -match '^\d{4,8}$') -and (-not $weak)
+    if ($one.Length -lt 12 -and -not $okPin) { Write-Host 'Use 4 to 8 digits (not 0000 or 1234), or a password of 12 or more characters.' -ForegroundColor Yellow }
     elseif ($one -cne $two) { Write-Host 'They did not match.' -ForegroundColor Yellow }
     else { break }
   } while ($true)

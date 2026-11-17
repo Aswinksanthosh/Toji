@@ -23,7 +23,7 @@ Restart, lock, sleep, close game, game mode and the coding buttons ask "are you 
 4. Start `Remote.cmd`. Open the address it prints on your phone.
 
 Wake needs the hub to be on the same network as the sleeping laptop. See `README-wake.md`.
-Private networks and Tailscale only. Password page, 5-try lockout.
+Private networks and Tailscale only. The page asks for a **PIN of 4 to 8 digits** (not 0000 or 1234) or a password of 12+ characters, 5-try lockout. To change it: `[Environment]::SetEnvironmentVariable('JARVIS_REMOTE_PASSWORD','8426','User')`, then restart the remote (`scripts\restart-remote.ps1`); if it still wants the old one, sign out of Windows and in again.
 
 ## One laptop, always on
 Keep the laptop awake with the screen off (plugged in, lid does nothing; a sleeping laptop cannot be reached). On it, run `Setup-Remote.cmd` (say `y` to serve the page), and list it in `devices.json` with only its own agent address, no MAC needed:
